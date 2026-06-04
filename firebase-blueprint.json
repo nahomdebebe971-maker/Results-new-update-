@@ -1,0 +1,113 @@
+{
+  "entities": {
+    "SchoolConfig": {
+      "title": "School Configuration",
+      "description": "Global settings for the school instance",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string" },
+        "schoolLogo": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "passMark": { "type": "number" },
+        "contactInfo": { "type": "string" },
+        "analyticsRanges": { "type": "array" },
+        "studentIdPrefix": { "type": "string" },
+        "resultsPublished": { "type": "boolean" }
+      },
+      "required": ["schoolName", "academicYear", "passMark"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Information about a school teacher",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "teacherId"]
+    },
+    "Grade": {
+      "title": "Grade & Section",
+      "description": "Defines a class like 9A",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "section": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "section"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Curriculum subjects",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "passkey": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "passkey"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Information and calculated results for a student",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "name": { "type": "string" },
+        "sex": { "type": "string", "enum": ["M", "F"] },
+        "age": { "type": "number" },
+        "grade": { "type": "string" },
+        "section": { "type": "string" },
+        "results": { "type": "object" },
+        "semester1": { "type": "object" },
+        "semester2": { "type": "object" },
+        "final": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "name", "grade", "section"]
+    },
+    "Mark": {
+      "title": "Student Mark",
+      "description": "Individual subject marks for a student",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "grade": { "type": "string" },
+        "section": { "type": "string" },
+        "semester1": { "type": "number" },
+        "semester2": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "subjectId"]
+    }
+  },
+  "firestore": {
+    "/config/school": {
+      "schema": "SchoolConfig",
+      "description": "Global school configuration"
+    },
+    "/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Registered teachers"
+    },
+    "/grades/{gradeId}": {
+      "schema": "Grade",
+      "description": "Grade levels and sections"
+    },
+    "/subjects/{subjectId}": {
+      "schema": "Subject",
+      "description": "School subjects with passkeys"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Student profiles and summarized results"
+    },
+    "/marks/{markId}": {
+      "schema": "Mark",
+      "description": "Individual student subject marks"
+    }
+  }
+}

@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'nahomdebebe971@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- School Configuration ---
+    match /config/{configId} {
+      allow read: if true; // Publicly readable for branding
+      allow write: if isAdmin();
+    }
+
+    // --- Teachers ---
+    match /teachers/{teacherId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // --- Grades ---
+    match /grades/{gradeId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- Subjects ---
+    match /subjects/{subjectId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- Students ---
+    match /students/{studentId} {
+      // Students access results using Student ID. 
+      // In a real system we'd verify auth, but here it's more like a public search by ID.
+      // However, we should restrict general "listing" of students.
+      allow get: if true; 
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // --- Marks ---
+    match /marks/{markId} {
+      allow read: if isAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/teachers/$(request.auth.uid)));
+      allow write: if isAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/teachers/$(request.auth.uid)));
+      
+      // We'll refine teacher write permissions in the implementation
+    }
+
+    // --- Admin Metadata ---
+    match /admins/{userId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}

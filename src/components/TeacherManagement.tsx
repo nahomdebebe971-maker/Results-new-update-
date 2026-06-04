@@ -1,0 +1,186 @@
+import React, { useState, useEffect } from 'react';
+import { Plus, Trash2, Users, Loader2, FileDown, Search } from 'lucide-react';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { Teacher } from '../types';
+import { motion, AnimatePresence } from 'motion/react';
+import * as XLSX from 'xlsx';
+
+export const TeacherManagement: React.FC = () => {
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [formData, setFormData] = useState({ name: '', teacherId: '' });
+
+  useEffect(() => {
+    const q = query(collection(db, 'teachers'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setTeachers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Teacher)));
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.teacherId) return;
+    try {
+      await addDoc(collection(db, 'teachers'), {
+        ...formData,
+        createdAt: new Date().toISOString(),
+      });
+      setFormData({ name: '', teacherId: '' });
+      setShowAdd(false);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm('Delete this teacher record?')) {
+      await deleteDoc(doc(db, 'teachers', id));
+    }
+  };
+
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(teachers.map(t => ({ Name: t.name, 'Teacher ID': t.teacherId, 'Created At': t.createdAt })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Teachers');
+    XLSX.writeFile(wb, 'Teachers_Roll.xlsx');
+  };
+
+  const filteredTeachers = teachers.filter(t => 
+    t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    t.teacherId.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-black text-gray-900 tracking-tight">Teacher Management</h2>
+          <p className="text-gray-500 font-medium">Manage your school's teaching staff.</p>
+        </div>
+        <div className="flex gap-3 w-full md:w-auto">
+          <button 
+            onClick={exportToExcel}
+            className="flex items-center gap-2 bg-white text-gray-700 border border-gray-200 px-4 py-2.5 rounded-xl font-bold hover:bg-gray-50 transition-all text-sm"
+          >
+            <FileDown className="w-5 h-5" /> Export Excel
+          </button>
+          <button 
+            onClick={() => setShowAdd(true)}
+            className="flex-grow md:flex-grow-0 flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:scale-105 transition-transform"
+          >
+            <Plus className="w-5 h-5" /> Add Teacher
+          </button>
+        </div>
+      </div>
+
+      <div className="relative">
+        <input 
+          type="text" 
+          placeholder="Search by name or ID..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          className="w-full p-4 pl-12 bg-white border border-gray-100 rounded-2xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-600 transition-all"
+        />
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+      </div>
+
+      <AnimatePresence>
+        {showAdd && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="bg-white p-8 rounded-2xl border border-indigo-100 shadow-xl shadow-indigo-50/50"
+          >
+            <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Full Name</label>
+                <input 
+                  required
+                  type="text" 
+                  value={formData.name}
+                  onChange={e => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g. Nahom Debebe"
+                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Teacher ID</label>
+                <input 
+                  required
+                  type="text" 
+                  value={formData.teacherId}
+                  onChange={e => setFormData({ ...formData, teacherId: e.target.value })}
+                  placeholder="e.g. TEA-001"
+                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
+                />
+              </div>
+              <div className="md:col-span-2 flex gap-4">
+                <button 
+                  type="button"
+                  onClick={() => setShowAdd(false)}
+                  className="flex-grow py-4 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-grow py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                >
+                  Register Teacher
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden overflow-x-auto">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100">
+              <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Teacher Name</th>
+              <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Teacher ID</th>
+              <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {filteredTeachers.map((teacher) => (
+              <tr key={teacher.id} className="hover:bg-gray-50 transition-colors group">
+                <td className="px-8 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center font-bold">
+                      {teacher.name.charAt(0)}
+                    </div>
+                    <span className="font-bold text-gray-900">{teacher.name}</span>
+                  </div>
+                </td>
+                <td className="px-8 py-4">
+                  <span className="text-sm font-mono font-bold text-gray-500">{teacher.teacherId}</span>
+                </td>
+                <td className="px-8 py-4 text-right">
+                  <button 
+                    onClick={() => handleDelete(teacher.id)}
+                    className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {filteredTeachers.length === 0 && !loading && (
+              <tr>
+                <td colSpan={3} className="px-8 py-20 text-center text-gray-400 font-medium">No teachers found matching your search.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
