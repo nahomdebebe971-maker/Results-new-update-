@@ -24,10 +24,14 @@ export const TeacherManagement: React.FC = () => {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.teacherId) return;
+    const cleanName = formData.name.trim();
+    const cleanId = formData.teacherId.trim();
+
+    if (!cleanName || !cleanId) return;
     try {
       await addDoc(collection(db, 'teachers'), {
-        ...formData,
+        name: cleanName,
+        teacherId: cleanId,
         createdAt: new Date().toISOString(),
       });
       setFormData({ name: '', teacherId: '' });

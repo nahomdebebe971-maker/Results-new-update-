@@ -11,6 +11,8 @@ import { Student, Grade, Subject, Mark } from '../types';
 import { calculateResultsForGrade } from '../lib/resultService';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
 
+import { toast } from 'react-hot-toast';
+
 export const TeacherPortal: React.FC = () => {
   const { teacherId } = useAuth();
   const { config } = useSchoolConfig();
@@ -23,7 +25,7 @@ export const TeacherPortal: React.FC = () => {
   const [grades, setGrades] = useState<Grade[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  const [marks, setMarks] = useState<Record<string, { semester1: number, semester2: number }>>({});
+  const [marks, setMarks] = useState<Record<string, { semester1: number, semester2: number, teacherId?: string }>>({});
 
   const [selection, setSelection] = useState({
     grade: '',
@@ -66,11 +68,15 @@ export const TeacherPortal: React.FC = () => {
         setStudents(studentList);
 
         // Fetch existing marks
-        const mSnap = await getDocs(query(collection(db, 'marks'), where('subjectId', '==', selection.subject)));
+        const mSnap = await getDocs(query(collection(db, 'marks'), where('subjectId', '==', selection.subject), where('grade', '==', gName), where('section', '==', gSec)));
         const existingMarks: any = {};
         mSnap.docs.forEach(d => {
           const data = d.data();
-          existingMarks[data.studentId] = { semester1: data.semester1, semester2: data.semester2 };
+          existingMarks[data.studentId] = { 
+            semester1: data.semester1, 
+            semester2: data.semester2,
+            teacherId: data.teacherId
+          };
         });
         setMarks(existingMarks);
         
@@ -87,11 +93,17 @@ export const TeacherPortal: React.FC = () => {
   };
 
   const handleMarkChange = (studentId: string, sem: 'semester1' | 'semester2', value: string) => {
+    const existingMark = marks[studentId];
+    if (existingMark?.teacherId && existingMark.teacherId !== teacherId) {
+      toast.error('This mark was entered by another teacher and cannot be modified by you.');
+      return;
+    }
+
     const num = Math.min(100, Math.max(0, Number(value) || 0));
     setMarks(prev => ({
       ...prev,
       [studentId]: {
-        ...(prev[studentId] || { semester1: 0, semester2: 0 }),
+        ...(prev[studentId] || { semester1: 0, semester2: 0, teacherId }),
         [sem]: num
       }
     }));
@@ -104,7 +116,11 @@ export const TeacherPortal: React.FC = () => {
       const [gName, gSec] = [selection.grade.replace(/[^0-9]/g, ''), selection.grade.replace(/[0-9]/g, '')];
 
       for (const [studentId, values] of Object.entries(marks)) {
-        const studentMarks = values as { semester1: number, semester2: number };
+        const studentMarks = values as { semester1: number, semester2: number, teacherId?: string };
+        
+        // Skip if teacherId mismatch (extra safety)
+        if (studentMarks.teacherId && studentMarks.teacherId !== teacherId) continue;
+
         const markId = `${studentId}_${selection.subject}`;
         await setDoc(doc(db, 'marks', markId), {
           studentId,
@@ -113,19 +129,22 @@ export const TeacherPortal: React.FC = () => {
           section: gSec,
           semester1: studentMarks.semester1,
           semester2: studentMarks.semester2,
+          teacherId: teacherId, // Register ownership
           updatedAt: new Date().toISOString()
         });
       }
 
-      // Trigger recalculation for the entire grade
+      // Trigger recalculation for the entire grade/section
       if (config) {
-        await calculateResultsForGrade(gName, config);
+        await calculateResultsForGrade(gName, gSec, config);
       }
 
       setSaveSuccess(true);
+      toast.success('Marks saved successfully!');
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error(err);
+      toast.error('Failed to save marks.');
       setError('Failed to save marks.');
     } finally {
       setSaving(false);

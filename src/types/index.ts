@@ -6,7 +6,7 @@ export interface SchoolConfig {
   contactInfo: string;
   analyticsRanges: { label: string; min: number; max: number }[];
   studentIdPrefix: string;
-  resultsPublished: boolean;
+  publishedGrades: string[];
 }
 
 export interface Teacher {
@@ -68,6 +68,7 @@ export interface Mark {
   section: string;
   semester1: number;
   semester2: number;
+  teacherId?: string;
   updatedAt: string;
 }
 

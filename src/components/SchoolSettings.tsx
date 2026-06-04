@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
-import { Settings, Save, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Settings, Save, CheckCircle2, XCircle, AlertTriangle, Trash2, Loader2 } from 'lucide-react';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
+import { collection, getDocs, writeBatch, doc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { toast } from 'react-hot-toast';
 
 export const SchoolSettings: React.FC = () => {
   const { config, updateConfig } = useSchoolConfig();
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [showConfirmReset, setShowConfirmReset] = useState(false);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,6 +23,7 @@ export const SchoolSettings: React.FC = () => {
       academicYear: formData.get('academicYear') as string,
       passMark: Number(formData.get('passMark')),
       contactInfo: formData.get('contactInfo') as string,
+      studentIdPrefix: formData.get('studentIdPrefix') as string,
     };
 
     try {
@@ -31,12 +37,40 @@ export const SchoolSettings: React.FC = () => {
     }
   };
 
-  const togglePublish = async () => {
-    await updateConfig({ resultsPublished: !config?.resultsPublished });
+  const handleDeleteAllData = async () => {
+    setIsResetting(true);
+    try {
+      const collections = ['students', 'teachers', 'grades', 'subjects', 'marks'];
+      const batch = writeBatch(db);
+      let totalDeleted = 0;
+
+      for (const colName of collections) {
+        const snap = await getDocs(collection(db, colName));
+        snap.forEach((document) => {
+          batch.delete(doc(db, colName, document.id));
+          totalDeleted++;
+        });
+      }
+
+      // Reset published grades in config
+      await updateConfig({ publishedGrades: [] });
+
+      if (totalDeleted > 0) {
+        await batch.commit();
+      }
+      
+      toast.success('System reset completed. All academic records cleared.');
+      setShowConfirmReset(false);
+    } catch (err) {
+      console.error('Error resetting system:', err);
+      toast.error('Reset failed. Please check permissions.');
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-20">
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">School Settings</h2>
@@ -64,41 +98,78 @@ export const SchoolSettings: React.FC = () => {
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Contact Info</label>
                 <input name="contactInfo" defaultValue={config?.contactInfo} required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
               </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Student ID Prefix</label>
+                <input name="studentIdPrefix" defaultValue={config?.studentIdPrefix} required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
+              </div>
             </div>
             
             <button disabled={saving} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-black transition-all">
               {saving ? 'Saving...' : success ? <><CheckCircle2 className="w-5 h-5 text-green-400" /> Saved Successfully</> : <><Save className="w-5 h-5" /> Save Configuration</>}
             </button>
           </form>
+
+          {/* Danger Zone */}
+          <div className="bg-red-50 p-8 rounded-3xl border border-red-100 space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-red-100 text-red-600 rounded-xl flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-gray-900 tracking-tight">Danger Zone</h3>
+                <p className="text-xs font-bold text-red-400 uppercase tracking-widest">System Destruction Protocols</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl border border-red-50 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+              <div>
+                <p className="font-bold text-gray-900">Factory Data Reset</p>
+                <p className="text-xs text-gray-500 font-medium mt-1">This will permanently delete all students, teachers, grades, subjects, and marks. This action cannot be undone.</p>
+              </div>
+              
+              {!showConfirmReset ? (
+                <button 
+                  onClick={() => setShowConfirmReset(true)}
+                  className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100 whitespace-nowrap"
+                >
+                  Reset All Data
+                </button>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => setShowConfirmReset(false)}
+                    className="px-4 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleDeleteAllData}
+                    disabled={isResetting}
+                    className="px-6 py-3 bg-red-600 text-white rounded-xl font-black hover:bg-red-700 transition-all shadow-lg shadow-red-200 text-xs uppercase tracking-widest flex items-center gap-2"
+                  >
+                    {isResetting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Wipeout'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm h-fit">
-            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-orange-500" /> Result Publication
-            </h3>
-            <p className="text-sm text-gray-500 mb-6 font-medium">
-              When results are published, students can search and view their transcripts using their IDs.
-            </p>
-            
-            <div className={`p-6 rounded-2xl border-2 transition-all ${config?.resultsPublished ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-bold uppercase tracking-wider text-gray-500">Status</span>
-                <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${config?.resultsPublished ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
-                  {config?.resultsPublished ? 'Published' : 'Hidden'}
-                </span>
+          <div className="bg-indigo-600 p-8 rounded-3xl shadow-xl shadow-indigo-100 text-white relative overflow-hidden group">
+            <div className="relative z-10">
+              <h3 className="text-lg font-black mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" /> Result Governance
+              </h3>
+              <p className="text-sm opacity-80 mb-6 font-medium">
+                Publishing is now managed at the grade level. This ensures students only see results for classes that have finalized their marks.
+              </p>
+              <div className="bg-white/10 p-4 rounded-xl border border-white/20 backdrop-blur-sm">
+                 <p className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-60">Control Panel</p>
+                 <p className="text-xs font-bold">Go to Academic Structure to toggle publishing for individual sections.</p>
               </div>
-              <button 
-                onClick={togglePublish}
-                className={`w-full py-3 rounded-xl font-bold transition-all shadow-md ${
-                  config?.resultsPublished 
-                    ? 'bg-red-600 text-white hover:bg-red-700' 
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                }`}
-              >
-                {config?.resultsPublished ? 'Unpublish Results' : 'Publish Results Now'}
-              </button>
             </div>
+            <Settings className="absolute -right-8 -bottom-8 w-40 h-40 opacity-10 group-hover:rotate-45 transition-transform duration-1000" />
           </div>
         </div>
       </div>

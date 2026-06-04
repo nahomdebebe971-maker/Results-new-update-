@@ -31,7 +31,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       await loginTeacher(teacherName, teacherId);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Failed to login as Teacher');
+      console.error('Teacher Auth Error:', err);
+      // Check for common Firestore error codes
+      if (err.code === 'permission-denied') {
+        setError('System Permission Error: Please check database rules or contact admin.');
+      } else {
+        setError(err.message || 'Failed to login as Teacher');
+      }
     } finally {
       setLoading(false);
     }

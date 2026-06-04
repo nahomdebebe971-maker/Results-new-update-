@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Search, Download, FileText, ChevronRight, AlertCircle, Loader2 } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Student, SchoolConfig, SemesterSummary } from '../types';
+import { Student, SchoolConfig, SemesterSummary, Grade } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { generateStudentTranscript } from '../lib/pdfGenerator';
@@ -23,17 +23,33 @@ export const StudentPortal: React.FC = () => {
     setStudent(null);
 
     try {
-      if (!config?.resultsPublished) {
-        setError('Results are not published yet. Please check back later.');
-        setLoading(false);
-        return;
-      }
-
       const docRef = doc(db, 'students', studentId.trim().toUpperCase());
       const snap = await getDoc(docRef);
 
       if (snap.exists()) {
-        setStudent(snap.data() as Student);
+        const studentData = snap.data() as Student;
+        
+        // Check if student's grade is published
+        const gradesRef = collection(db, 'grades');
+        const q = query(gradesRef, where('name', '==', studentData.grade), where('section', '==', studentData.section));
+        const gSnap = await getDocs(q);
+        
+        if (gSnap.empty) {
+          setError('System Error: Student grade verification failed. Please contact registrar.');
+          setLoading(false);
+          return;
+        }
+
+        const gradeId = gSnap.docs[0].id;
+        const isPublished = config?.publishedGrades?.includes(gradeId);
+
+        if (!isPublished) {
+          setError('Results for your grade are not published yet. Please check back later.');
+          setLoading(false);
+          return;
+        }
+
+        setStudent(studentData);
       } else {
         setError('Student ID not found. Please verify and try again.');
       }

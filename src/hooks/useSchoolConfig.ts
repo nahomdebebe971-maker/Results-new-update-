@@ -11,11 +11,13 @@ export function useSchoolConfig() {
   useEffect(() => {
     const docRef = doc(db, 'config', 'school');
     
-    // Initial fetch and setup if doesn't exist
+    // Initial fetch
     const initializeConfig = async () => {
       const snap = await getDoc(docRef);
-      if (!snap.exists()) {
-        await setDoc(docRef, DEFAULT_SCHOOL_CONFIG);
+      if (snap.exists()) {
+        setConfig(snap.data() as SchoolConfig);
+      } else {
+        // Just set default if doesn't exist, don't try to write it (Admin will do that)
         setConfig(DEFAULT_SCHOOL_CONFIG);
       }
     };

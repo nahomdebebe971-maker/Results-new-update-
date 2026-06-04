@@ -1,80 +1,18 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny
+    // Explicitly allow all collections
+    match /config/school { allow read, write: if true; }
+    match /teachers/{id} { allow read, write: if true; }
+    match /students/{id} { allow read, write: if true; }
+    match /grades/{id} { allow read, write: if true; }
+    match /subjects/{id} { allow read, write: if true; }
+    match /marks/{id} { allow read, write: if true; }
+    match /admins/{id} { allow read, write: if true; }
+    
+    // Catch-all
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isEmailVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email == 'nahomdebebe971@gmail.com' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    // --- School Configuration ---
-    match /config/{configId} {
-      allow read: if true; // Publicly readable for branding
-      allow write: if isAdmin();
-    }
-
-    // --- Teachers ---
-    match /teachers/{teacherId} {
-      allow read: if true; // Allow teachers to verify their login
-      allow write: if isAdmin();
-    }
-
-    // --- Grades ---
-    match /grades/{gradeId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // --- Subjects ---
-    match /subjects/{subjectId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // --- Students ---
-    match /students/{studentId} {
-      allow get: if true; 
-      allow list: if true; // Allow teachers to search for students to enter marks
-      allow write: if isAdmin();
-    }
-
-    // --- Marks ---
-    match /marks/{markId} {
-      allow read: if true;
-      allow write: if true; // Allow teachers to save marks. We'll rely on app logic for teacher scope.
-    }
-
-    // --- Admin Metadata ---
-    match /admins/{userId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
   }
 }

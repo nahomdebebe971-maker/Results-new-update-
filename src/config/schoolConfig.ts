@@ -13,5 +13,5 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
     { label: '90-100', min: 90, max: 100 },
   ],
   studentIdPrefix: 'ST',
-  resultsPublished: false,
+  publishedGrades: [],
 };

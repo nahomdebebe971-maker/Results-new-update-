@@ -4,14 +4,22 @@ import {
 import { db } from './firebase';
 import { Student, Mark, SchoolConfig } from '../types';
 
-export const calculateResultsForGrade = async (gradeName: string, config: SchoolConfig) => {
-  // 1. Fetch all students in this grade
-  const qS = query(collection(db, 'students'), where('grade', '==', gradeName));
+export const calculateResultsForGrade = async (gradeName: string, section: string, config: SchoolConfig) => {
+  // 1. Fetch all students in this grade/section
+  const qS = query(
+    collection(db, 'students'), 
+    where('grade', '==', gradeName),
+    where('section', '==', section)
+  );
   const studentSnaps = await getDocs(qS);
   const students = studentSnaps.docs.map(d => ({ id: d.id, ...d.data() } as Student));
 
-  // 2. Fetch all marks for this grade
-  const qM = query(collection(db, 'marks'), where('grade', '==', gradeName));
+  // 2. Fetch all marks for this grade/section
+  const qM = query(
+    collection(db, 'marks'), 
+    where('grade', '==', gradeName),
+    where('section', '==', section)
+  );
   const markSnaps = await getDocs(qM);
   const marks = markSnaps.docs.map(d => d.data() as Mark);
 

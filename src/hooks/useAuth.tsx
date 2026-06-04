@@ -36,12 +36,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (session) {
       const { type, name, id } = JSON.parse(session);
       if (type === 'TEACHER') {
-        const q = query(collection(db, 'teachers'), where('name', '==', name), where('teacherId', '==', id));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
+        const cleanName = name.trim().toLowerCase();
+        const cleanId = id.trim().toLowerCase();
+        
+        const teachersRef = collection(db, 'teachers');
+        const snap = await getDocs(teachersRef);
+        
+        const teacher = snap.docs.find(doc => {
+          const data = doc.data();
+          return (
+            data.teacherId?.toString().trim().toLowerCase() === cleanId &&
+            data.name?.toString().trim().toLowerCase() === cleanName
+          );
+        });
+
+        if (teacher) {
+          const teacherData = teacher.data();
           setRole('TEACHER');
-          setTeacherId(id);
-          setTeacherName(name);
+          setTeacherId(teacherData.teacherId);
+          setTeacherName(teacherData.name);
           setLoading(false);
           return true;
         }
@@ -51,14 +64,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginTeacher = async (name: string, id: string) => {
-    const q = query(collection(db, 'teachers'), where('name', '==', name), where('teacherId', '==', id));
-    const snap = await getDocs(q);
-    if (snap.empty) throw new Error('Teacher record not found. Please check your Name and ID.');
+    const cleanName = name.trim().toLowerCase();
+    const cleanId = id.trim().toLowerCase();
     
+    // Search by ID first (we'll fetch all teachers then filter locally for simplicity and robustness with case)
+    const teachersRef = collection(db, 'teachers');
+    const snap = await getDocs(teachersRef);
+    
+    const teacher = snap.docs.find(doc => {
+      const data = doc.data();
+      return (
+        data.teacherId?.toString().trim().toLowerCase() === cleanId &&
+        data.name?.toString().trim().toLowerCase() === cleanName
+      );
+    });
+    
+    if (!teacher) {
+      console.warn(`Teacher login failed for: "${name}" with ID: "${id}"`);
+      throw new Error('Teacher record not found. Please verify your Name and ID match exactly what the Admin registered.');
+    }
+    
+    const teacherData = teacher.data();
     setRole('TEACHER');
-    setTeacherId(id);
-    setTeacherName(name);
-    localStorage.setItem('school_staff_session', JSON.stringify({ type: 'TEACHER', name, id }));
+    setTeacherId(teacherData.teacherId);
+    setTeacherName(teacherData.name);
+    localStorage.setItem('school_staff_session', JSON.stringify({ 
+      type: 'TEACHER', 
+      name: teacherData.name, 
+      id: teacherData.teacherId 
+    }));
   };
 
   const performLogout = async () => {
@@ -74,7 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
         // Strict Admin Email Check
-        if (fbUser.email === 'nahomdebebe971@gmail.com') {
+        if (fbUser.email?.toLowerCase() === 'nahomdebebe971@gmail.com') {
           setUser(fbUser);
           setRole('ADMIN');
           setLoading(false);

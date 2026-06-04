@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit3, Loader2, AlertCircle, UsersRound } from 'lucide-react';
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Grade } from '../types';
+import { Grade, SchoolConfig } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { useSchoolConfig } from '../hooks/useSchoolConfig';
+import { CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import { GradeResultsTable } from './GradeResultsTable';
 
 export const GradeManagement: React.FC = () => {
   const [grades, setGrades] = useState<Grade[]>([]);
+  const { config, updateConfig } = useSchoolConfig();
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [formData, setFormData] = useState({ name: '', section: '' });
+  const [selectedGrade, setSelectedGrade] = useState<Grade | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, 'grades'), orderBy('createdAt', 'desc'));
@@ -38,6 +44,22 @@ export const GradeManagement: React.FC = () => {
   const handleDelete = async (id: string) => {
     if (window.confirm('Delete this grade? This may affect students assigned to it.')) {
       await deleteDoc(doc(db, 'grades', id));
+    }
+  };
+
+  const togglePublish = async (gradeId: string) => {
+    if (!config) return;
+    const currentPublished = config.publishedGrades || [];
+    const isPublished = currentPublished.includes(gradeId);
+    const newPublished = isPublished 
+      ? currentPublished.filter(id => id !== gradeId)
+      : [...currentPublished, gradeId];
+    
+    try {
+      await updateConfig({ publishedGrades: newPublished });
+      toast.success(isPublished ? 'Results unpublished for this grade' : 'Results published successfully!');
+    } catch (err) {
+      toast.error('Failed to update publishing status');
     }
   };
 
@@ -122,24 +144,65 @@ export const GradeManagement: React.FC = () => {
             <motion.div
               layout
               key={grade.id}
-              className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all group"
+              onClick={() => setSelectedGrade(grade)}
+              className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:shadow-indigo-100/20 transition-all group cursor-pointer relative overflow-hidden"
             >
-              <div className="flex justify-between items-start mb-4">
-                <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-black text-2xl">
+              <div className="flex justify-between items-start mb-4 relative z-10">
+                <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-black text-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all">
                   {grade.name}{grade.section}
                 </div>
-                <button 
-                  onClick={() => handleDelete(grade.id)}
-                  className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePublish(grade.id);
+                    }}
+                    className={`p-2 rounded-lg transition-all ${
+                      config?.publishedGrades?.includes(grade.id)
+                        ? 'bg-green-50 text-green-600 hover:bg-green-100'
+                        : 'bg-amber-50 text-amber-500 hover:bg-amber-100'
+                    }`}
+                    title={config?.publishedGrades?.includes(grade.id) ? 'Unpublish' : 'Publish'}
+                  >
+                    {config?.publishedGrades?.includes(grade.id) ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(grade.id);
+                    }}
+                    className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
-              <p className="text-sm font-bold text-gray-900">Grade {grade.name}</p>
-              <p className="text-xs font-semibold text-gray-400">Section {grade.section}</p>
+              <p className="text-sm font-bold text-gray-900 relative z-10">Grade {grade.name}</p>
+              <p className="text-xs font-semibold text-gray-400 relative z-10">Section {grade.section}</p>
+              <div className="mt-4 pt-4 border-t border-gray-50 flex items-center justify-between relative z-10">
+                 <span className={`text-[10px] font-black uppercase tracking-widest ${
+                   config?.publishedGrades?.includes(grade.id) ? 'text-green-500' : 'text-amber-500'
+                 }`}>
+                   {config?.publishedGrades?.includes(grade.id) ? 'Published' : 'Draft'}
+                 </span>
+                 <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                    View Results <BarChart3 className="w-3 h-3" />
+                 </div>
+              </div>
+              <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-150 transition-transform">
+                <BarChart3 className="w-24 h-24 text-indigo-600" />
+              </div>
             </motion.div>
           ))}
         </div>
+      )}
+
+      {selectedGrade && config && (
+        <GradeResultsTable 
+          grade={selectedGrade} 
+          config={config} 
+          onClose={() => setSelectedGrade(null)} 
+        />
       )}
     </div>
   );
