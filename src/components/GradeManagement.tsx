@@ -14,7 +14,7 @@ export const GradeManagement: React.FC = () => {
   const { config, updateConfig } = useSchoolConfig();
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [formData, setFormData] = useState({ name: '', section: '' });
+  const [formData, setFormData] = useState({ name: '', section: '', homeroomTeacher: '' });
   const [selectedGrade, setSelectedGrade] = useState<Grade | null>(null);
 
   useEffect(() => {
@@ -28,13 +28,13 @@ export const GradeManagement: React.FC = () => {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.name) return;
+    if (!formData.name || !formData.section) return;
     try {
       await addDoc(collection(db, 'grades'), {
         ...formData,
         createdAt: new Date().toISOString(),
       });
-      setFormData({ name: '', section: '' });
+      setFormData({ name: '', section: '', homeroomTeacher: '' });
       setShowAdd(false);
     } catch (err) {
       console.error(err);
@@ -106,7 +106,17 @@ export const GradeManagement: React.FC = () => {
                   value={formData.section}
                   onChange={e => setFormData({ ...formData, section: e.target.value })}
                   placeholder="A"
-                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
+                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                />
+              </div>
+              <div className="md:col-span-2 space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Homeroom Teacher (Optional)</label>
+                <input 
+                  type="text" 
+                  value={formData.homeroomTeacher}
+                  onChange={e => setFormData({ ...formData, homeroomTeacher: e.target.value })}
+                  placeholder="Enter name"
+                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                 />
               </div>
               <div className="md:col-span-2 flex gap-4">
@@ -179,6 +189,9 @@ export const GradeManagement: React.FC = () => {
               </div>
               <p className="text-sm font-bold text-gray-900 relative z-10">Grade {grade.name}</p>
               <p className="text-xs font-semibold text-gray-400 relative z-10">Section {grade.section}</p>
+              {grade.homeroomTeacher && (
+                <p className="text-[10px] font-bold text-indigo-500 mt-2 relative z-10 italic">Homeroom: {grade.homeroomTeacher}</p>
+              )}
               <div className="mt-4 pt-4 border-t border-gray-50 flex items-center justify-between relative z-10">
                  <span className={`text-[10px] font-black uppercase tracking-widest ${
                    config?.publishedGrades?.includes(grade.id) ? 'text-green-500' : 'text-amber-500'

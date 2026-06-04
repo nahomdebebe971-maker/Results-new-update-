@@ -20,9 +20,12 @@ export const SchoolSettings: React.FC = () => {
     const formData = new FormData(e.target as HTMLFormElement);
     const updates = {
       schoolName: formData.get('schoolName') as string,
+      schoolMotto: formData.get('schoolMotto') as string,
+      schoolPhone: formData.get('schoolPhone') as string,
+      schoolEmail: formData.get('schoolEmail') as string,
+      schoolAddress: formData.get('schoolAddress') as string,
       academicYear: formData.get('academicYear') as string,
       passMark: Number(formData.get('passMark')),
-      contactInfo: formData.get('contactInfo') as string,
       studentIdPrefix: formData.get('studentIdPrefix') as string,
     };
 
@@ -87,6 +90,10 @@ export const SchoolSettings: React.FC = () => {
                 <input name="schoolName" defaultValue={config?.schoolName} required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
               </div>
               <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">School Motto</label>
+                <input name="schoolMotto" defaultValue={config?.schoolMotto} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
+              </div>
+              <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Academic Year</label>
                 <input name="academicYear" defaultValue={config?.academicYear} required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
               </div>
@@ -95,8 +102,16 @@ export const SchoolSettings: React.FC = () => {
                 <input name="passMark" type="number" defaultValue={config?.passMark} required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Contact Info</label>
-                <input name="contactInfo" defaultValue={config?.contactInfo} required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Contact Phone</label>
+                <input name="schoolPhone" defaultValue={config?.schoolPhone} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">School Email</label>
+                <input name="schoolEmail" type="email" defaultValue={config?.schoolEmail} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
+              </div>
+              <div className="md:col-span-2 space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">School Address</label>
+                <input name="schoolAddress" defaultValue={config?.schoolAddress} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Student ID Prefix</label>

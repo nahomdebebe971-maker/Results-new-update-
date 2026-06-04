@@ -3,7 +3,7 @@ import {
   Users, UsersRound, BookOpen, GraduationCap, 
   Settings, PieChart, Upload, Plus, Trash2, 
   Search, FileDown, Edit3, CheckCircle, XCircle,
-  Award, TrendingUp, BarChart3
+  Award, TrendingUp, BarChart3, Layout
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { SchoolConfig } from '../types';
@@ -16,6 +16,7 @@ import { SchoolSettings } from '../components/SchoolSettings';
 import { RosterGenerator } from '../components/RosterGenerator';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { SubjectAssignmentManager } from '../components/SubjectAssignment';
+import { TemplateManager } from '../components/TemplateManager';
 
 import { DecisionDashboard } from '../components/DecisionDashboard';
 
@@ -49,6 +50,7 @@ export const AdminPortal: React.FC = () => {
     { id: 'subjects', label: 'Curriculum', icon: BookOpen },
     { id: 'assignments', label: 'Teacher Assignments', icon: Users },
     { id: 'analytics', label: 'Student Rankings', icon: Award },
+    { id: 'templates', label: 'Document Templates', icon: Layout },
     { id: 'insights', label: 'Decision Insights', icon: TrendingUp },
     { id: 'reports', label: 'Transcripts', icon: FileDown },
     { id: 'settings', label: 'Configuration', icon: Settings },
@@ -106,6 +108,7 @@ export const AdminPortal: React.FC = () => {
           {activeTab === 'assignments' && <SubjectAssignmentManager />}
           {activeTab === 'reports' && <RosterGenerator config={config} />}
           {activeTab === 'analytics' && <AnalyticsDashboard config={config} />}
+          {activeTab === 'templates' && <TemplateManager />}
           {activeTab === 'insights' && <DecisionDashboard config={config} />}
           {activeTab === 'settings' && <SchoolSettingsWrapper />}
         </div>

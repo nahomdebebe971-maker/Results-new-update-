@@ -9,7 +9,7 @@ export const SubjectManagement: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [formData, setFormData] = useState({ name: '', passkey: '' });
+  const [formData, setFormData] = useState({ name: '' });
 
   useEffect(() => {
     const q = query(collection(db, 'subjects'), orderBy('createdAt', 'desc'));
@@ -22,13 +22,13 @@ export const SubjectManagement: React.FC = () => {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.passkey) return;
+    if (!formData.name) return;
     try {
       await addDoc(collection(db, 'subjects'), {
         ...formData,
         createdAt: new Date().toISOString(),
       });
-      setFormData({ name: '', passkey: '' });
+      setFormData({ name: '' });
       setShowAdd(false);
     } catch (err) {
       console.error(err);
@@ -46,7 +46,7 @@ export const SubjectManagement: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">Subject Management</h2>
-          <p className="text-gray-500 font-medium">Manage school subjects and their access passkeys.</p>
+          <p className="text-gray-500 font-medium">Manage school subjects and the core curriculum.</p>
         </div>
         <button 
           onClick={() => setShowAdd(true)}
@@ -64,8 +64,8 @@ export const SubjectManagement: React.FC = () => {
             exit={{ opacity: 0, y: -10 }}
             className="bg-white p-8 rounded-2xl border border-indigo-100 shadow-xl shadow-indigo-50/50"
           >
-            <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
+            <form onSubmit={handleAdd} className="flex flex-col md:flex-row gap-6">
+              <div className="flex-grow space-y-2">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Subject Name</label>
                 <input 
                   required
@@ -76,31 +76,17 @@ export const SubjectManagement: React.FC = () => {
                   className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
                 />
               </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Passkey (For Teachers)</label>
-                <div className="relative">
-                  <input 
-                    required
-                    type="text" 
-                    value={formData.passkey}
-                    onChange={e => setFormData({ ...formData, passkey: e.target.value })}
-                    placeholder="MATH123"
-                    className="w-full p-4 pl-12 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none font-mono"
-                  />
-                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                </div>
-              </div>
-              <div className="md:col-span-2 flex gap-4">
+              <div className="flex items-end gap-4">
                 <button 
                   type="button"
                   onClick={() => setShowAdd(false)}
-                  className="flex-grow py-4 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all"
+                  className="px-8 py-4 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
-                  className="flex-grow py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                  className="px-8 py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
                 >
                   Create Subject
                 </button>
@@ -115,7 +101,6 @@ export const SubjectManagement: React.FC = () => {
           <thead>
             <tr className="bg-gray-50 border-b border-gray-100">
               <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Subject Name</th>
-              <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Passkey</th>
               <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
             </tr>
           </thead>
@@ -130,9 +115,6 @@ export const SubjectManagement: React.FC = () => {
                     <span className="font-bold text-gray-900">{sub.name}</span>
                   </div>
                 </td>
-                <td className="px-8 py-4">
-                  <code className="bg-gray-100 px-3 py-1 rounded-md text-sm font-bold text-gray-600">{sub.passkey}</code>
-                </td>
                 <td className="px-8 py-4 text-right">
                   <button 
                     onClick={() => handleDelete(sub.id)}
@@ -145,7 +127,7 @@ export const SubjectManagement: React.FC = () => {
             ))}
             {subjects.length === 0 && !loading && (
               <tr>
-                <td colSpan={3} className="px-8 py-20 text-center text-gray-400 font-medium">No subjects found.</td>
+                <td colSpan={2} className="px-8 py-20 text-center text-gray-400 font-medium">No subjects found.</td>
               </tr>
             )}
           </tbody>

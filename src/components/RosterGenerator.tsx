@@ -43,6 +43,143 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
     }
   };
 
+  const exportPDF = async () => {
+    if (!students.length || !config) return;
+
+    const doc = new jsPDF('l', 'mm', 'a4'); // Landscape A4
+    const studentsPerPage = 6;
+    const pages = Math.ceil(students.length / studentsPerPage);
+
+    for (let pIdx = 0; pIdx < pages; pIdx++) {
+      if (pIdx > 0) doc.addPage();
+
+      const startIdx = pIdx * studentsPerPage;
+      const pageStudents = students.slice(startIdx, startIdx + studentsPerPage);
+
+      const currentGradeObj = grades.find(g => `${g.name}${g.section}` === selectedGrade);
+
+      // --- PAGE HEADER ---
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text(config.schoolName.toUpperCase(), 148, 15, { align: 'center' });
+      
+      doc.setFontSize(10);
+      doc.text(`ACADEMIC YEAR: ${config.academicYear}`, 15, 25);
+      doc.text(`GRADE & SECTION: ${selectedGrade}`, 148, 25, { align: 'center' });
+      doc.text(`TOTAL STUDENTS: ${students.length}`, 282, 25, { align: 'right' });
+      if (currentGradeObj?.homeroomTeacher) {
+        doc.text(`HOMEROOM TEACHER: ${currentGradeObj.homeroomTeacher}`, 15, 30);
+      }
+
+      // --- MAIN TABLE ---
+      const tableData: any[] = [];
+      pageStudents.forEach((s, sIdx) => {
+        const actualIdx = startIdx + sIdx + 1;
+        
+        // Term 1 Row
+        const term1Row = [
+          { content: actualIdx.toString(), rowSpan: 3, styles: { valign: 'middle', halign: 'center' } },
+          { content: s.name, rowSpan: 3, styles: { valign: 'middle' } },
+          { content: s.sex, rowSpan: 3, styles: { valign: 'middle', halign: 'center' } },
+          { content: s.age.toString(), rowSpan: 3, styles: { valign: 'middle', halign: 'center' } },
+          'SEM 1'
+        ];
+        
+        // Term 2 Row
+        const term2Row = ['SEM 2'];
+        
+        // Average Row
+        const aveRow = ['AVE'];
+
+        subjects.forEach(sub => {
+          const res = s.results?.[sub.id]; // Using ID now, wait existing code was names but types said ID?
+          // The previous code had subjects.map(s => s.name.slice(0,3)) but results?[sub.name]
+          // Let's use name to match existing logic if that's what's stored
+          const resBySubject = s.results?.[sub.id] || s.results?.[sub.name];
+          
+          term1Row.push(resBySubject?.semester1?.toString() || '0');
+          term2Row.push(resBySubject?.semester2?.toString() || '0');
+          aveRow.push(resBySubject?.average?.toFixed(1) || '0');
+        });
+
+        term1Row.push(
+          s.semester1?.total.toString() || '0',
+          s.semester1?.average.toFixed(1) || '0',
+          s.semester1?.rank.toString() || '0',
+          s.semester1?.status || 'Pass'
+        );
+
+        term2Row.push(
+          s.semester2?.total.toString() || '0',
+          s.semester2?.average.toFixed(1) || '0',
+          s.semester2?.rank.toString() || '0',
+          s.semester2?.status || 'Pass'
+        );
+
+        aveRow.push(
+          s.final?.total.toString() || '0',
+          s.final?.average.toFixed(1) || '0',
+          s.final?.rank.toString() || '0',
+          s.final?.status || 'Pass'
+        );
+
+        tableData.push(term1Row, term2Row, aveRow);
+      });
+
+      autoTable(doc, {
+        startY: 32,
+        head: [[
+          { content: 'S/N', rowSpan: 2 },
+          { content: 'STUDENT NAME', rowSpan: 2 },
+          { content: 'SEX', rowSpan: 2 },
+          { content: 'AGE', rowSpan: 2 },
+          { content: 'TERM', rowSpan: 2 },
+          { content: 'SUBJECTS', colSpan: subjects.length, styles: { halign: 'center' } },
+          { content: 'RESULT SUMMARY', colSpan: 4, styles: { halign: 'center' } }
+        ], [
+          ...subjects.map(s => ({ content: s.name.slice(0, 3), styles: { halign: 'center', fontSize: 7 } })),
+          'TOT', 'AVG', 'RNK', 'STS'
+        ]],
+        body: tableData,
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.1 },
+        headStyles: { fillColor: [245, 245, 245], textColor: [0, 0, 0], fontStyle: 'bold' },
+        didParseCell: (data) => {
+          if (data.row.index % 3 === 2) { // Average row
+             data.cell.styles.fillColor = [252, 252, 252];
+             data.cell.styles.fontStyle = 'bold';
+          }
+        }
+      });
+
+      // --- FOOTER TABLES ---
+      const footerStartY = (doc as any).lastAutoTable.finalY + 10;
+      const footerTables = config.rosterFooterTables || [
+        { title: 'Registered Students', fields: ['Male', 'Female', 'Total'] },
+        { title: 'Passed Students', fields: ['Male', 'Female', 'Total'] },
+        { title: 'Failed Students', fields: ['Male', 'Female', 'Total'] }
+      ];
+
+      const tableWidth = 85; 
+      footerTables.forEach((ft, i) => {
+        const xPos = 15 + (i * (tableWidth + 10));
+        if (xPos + tableWidth > 282) return; // Limit to 3 tables per row or adjust
+
+        autoTable(doc, {
+          startY: footerStartY,
+          margin: { left: xPos },
+          tableWidth: tableWidth,
+          head: [[{ content: ft.title, styles: { halign: 'center', fillColor: [240, 240, 240], textColor: [0, 0, 0] } }]],
+          body: ft.fields.map(f => [f + ': _________________']),
+          theme: 'grid',
+          styles: { fontSize: 7, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 }
+        });
+      });
+    }
+
+    doc.save(`Roster_${selectedGrade}_Official.pdf`);
+  };
+
   const exportExcel = () => {
     const data: any[] = [];
     students.forEach((s, idx) => {
@@ -120,7 +257,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
               <button onClick={exportExcel} className="flex items-center gap-2 bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold border border-gray-100 hover:bg-gray-100 transition-all">
                 <FileDown className="w-4 h-4" /> Export Excel
               </button>
-              <button className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md hover:bg-indigo-700 transition-all">
+              <button onClick={exportPDF} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md hover:bg-indigo-700 transition-all">
                 <Printer className="w-4 h-4" /> Print PDF
               </button>
             </div>
@@ -156,7 +293,9 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                       <td rowSpan={3} className="p-2 border-r border-gray-200 text-center">{s.age}</td>
                       <td className="p-1 border-r border-gray-200 text-[10px] font-bold text-gray-500">1st</td>
                       {subjects.map(sub => (
-                        <td key={sub.id} className="p-1 border-r border-gray-200 text-center font-medium">{s.results?.[sub.name]?.semester1 || 0}</td>
+                        <td key={sub.id} className="p-1 border-r border-gray-200 text-center font-medium">
+                          {s.results?.[sub.id]?.semester1 || s.results?.[sub.name]?.semester1 || 0}
+                        </td>
                       ))}
                       <td className="p-1 border-r border-gray-200 text-center font-bold">{s.semester1?.total}</td>
                       <td className="p-1 border-r border-gray-200 text-center font-bold">{s.semester1?.average.toFixed(1)}</td>
@@ -165,7 +304,9 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                     <tr className="hover:bg-gray-50/50">
                       <td className="p-1 border-r border-gray-200 text-[10px] font-bold text-gray-500">2nd</td>
                       {subjects.map(sub => (
-                        <td key={sub.id} className="p-1 border-r border-gray-200 text-center font-medium">{s.results?.[sub.name]?.semester2 || 0}</td>
+                        <td key={sub.id} className="p-1 border-r border-gray-200 text-center font-medium">
+                          {s.results?.[sub.id]?.semester2 || s.results?.[sub.name]?.semester2 || 0}
+                        </td>
                       ))}
                       <td className="p-1 border-r border-gray-200 text-center font-bold">{s.semester2?.total}</td>
                       <td className="p-1 border-r border-gray-200 text-center font-bold">{s.semester2?.average.toFixed(1)}</td>
@@ -174,7 +315,9 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                     <tr className="bg-gray-50/30 hover:bg-gray-50/50 font-black">
                       <td className="p-1 border-r border-gray-200 text-[10px] uppercase">Ave</td>
                       {subjects.map(sub => (
-                        <td key={sub.id} className="p-1 border-r border-gray-200 text-center">{s.results?.[sub.name]?.average.toFixed(1) || 0}</td>
+                        <td key={sub.id} className="p-1 border-r border-gray-200 text-center">
+                          {s.results?.[sub.id]?.average.toFixed(1) || s.results?.[sub.name]?.average.toFixed(1) || 0}
+                        </td>
                       ))}
                       <td className="p-1 border-r border-gray-200 text-center border-t border-gray-200">{s.final?.total}</td>
                       <td className="p-1 border-r border-gray-200 text-center border-t border-gray-200">{s.final?.average.toFixed(1)}</td>

@@ -1,12 +1,36 @@
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface RosterFooterTable {
+  title: string;
+  fields: string[];
+}
+
 export interface SchoolConfig {
   schoolName: string;
+  schoolMotto?: string;
+  schoolAddress?: string;
+  schoolPhone?: string;
+  schoolEmail?: string;
   schoolLogo: string;
+  schoolHeaderURL?: string;
+  schoolWatermarkURL?: string;
   academicYear: string;
   passMark: number;
   contactInfo: string;
   analyticsRanges: { label: string; min: number; max: number }[];
   studentIdPrefix: string;
   publishedGrades: string[];
+  transcriptLayout?: {
+    header: Point;
+    logo: Point;
+    watermark: Point;
+    footer: Point;
+    signature: Point;
+  };
+  rosterFooterTables?: RosterFooterTable[];
 }
 
 export interface Teacher {
@@ -20,13 +44,13 @@ export interface Grade {
   id: string;
   name: string;
   section: string;
+  homeroomTeacher?: string;
   createdAt: string;
 }
 
 export interface Subject {
   id: string;
   name: string;
-  passkey: string;
   createdAt: string;
 }
 
@@ -39,6 +63,7 @@ export interface SubjectAssignment {
   gradeId: string; // The specific grade-section doc ID
   gradeName: string;
   section: string;
+  passkey: string;
   createdAt: string;
 }
 

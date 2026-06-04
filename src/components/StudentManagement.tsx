@@ -8,10 +8,12 @@ import {
   query, orderBy, setDoc, getDocs, writeBatch 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Student, Grade } from '../types';
+import { Student, Grade, Subject } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { toast } from 'react-hot-toast';
+import { useSchoolConfig } from '../hooks/useSchoolConfig';
+import { generateTranscript } from '../lib/pdfTemplates';
 
 interface ImportPreview {
   name: string;
@@ -22,8 +24,10 @@ interface ImportPreview {
 }
 
 export const StudentManagement: React.FC = () => {
+  const { config } = useSchoolConfig();
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -34,7 +38,7 @@ export const StudentManagement: React.FC = () => {
   const [importPreview, setImportPreview] = useState<ImportPreview[]>([]);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importGradeSearch, setImportGradeSearch] = useState({ grade: '', section: '' });
-
+  
   useEffect(() => {
     const qS = query(collection(db, 'students'), orderBy('createdAt', 'desc'));
     const unsubscribeS = onSnapshot(qS, (snap) => {
@@ -47,11 +51,32 @@ export const StudentManagement: React.FC = () => {
       setGrades(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Grade)));
     });
 
+    const qSub = query(collection(db, 'subjects'));
+    const unsubscribeSub = onSnapshot(qSub, (snap) => {
+      setSubjects(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Subject)));
+    });
+
     return () => {
       unsubscribeS();
       unsubscribeG();
+      unsubscribeSub();
     };
   }, []);
+
+  const handleDownloadTranscript = async (student: Student) => {
+    if (!config) {
+      toast.error('School configuration not loaded.');
+      return;
+    }
+    
+    try {
+      await generateTranscript(student, subjects, config);
+      toast.success(`Generated transcript for ${student.name}`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to generate PDF.');
+    }
+  };
 
   const generateId = () => {
     const num = Math.floor(1000 + Math.random() * 9000);
@@ -444,9 +469,18 @@ export const StudentManagement: React.FC = () => {
                 <td className="px-8 py-4 font-bold text-gray-700">{s.grade}</td>
                 <td className="px-8 py-4 font-bold text-gray-700">{s.section}</td>
                 <td className="px-8 py-4 text-right">
-                  <button onClick={() => deleteDoc(doc(db, 'students', s.id))} className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all">
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+                  <div className="flex justify-end gap-2">
+                    <button 
+                      onClick={() => handleDownloadTranscript(s)}
+                      className="p-2 text-gray-300 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-all"
+                      title="Download Transcript"
+                    >
+                      <FileDown className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => deleteDoc(doc(db, 'students', s.id))} className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

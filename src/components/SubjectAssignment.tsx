@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Trash2, Users, BookOpen, GraduationCap, 
-  Loader2, AlertTriangle, CheckCircle2 
+  Loader2, AlertTriangle, CheckCircle2, Pencil 
 } from 'lucide-react';
 import { 
   collection, getDocs, setDoc, doc, deleteDoc, 
@@ -19,10 +19,12 @@ export const SubjectAssignmentManager: React.FC = () => {
   const [assignments, setAssignments] = useState<SubjectAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     teacherId: '',
     subjectId: '',
-    gradeId: ''
+    gradeId: '',
+    passkey: ''
   });
 
   useEffect(() => {
@@ -45,10 +47,21 @@ export const SubjectAssignmentManager: React.FC = () => {
     fetchData();
   }, []);
 
+  const handleEdit = (as: SubjectAssignment) => {
+    setFormData({
+      teacherId: as.teacherId,
+      subjectId: as.subjectId,
+      gradeId: as.gradeId,
+      passkey: as.passkey
+    });
+    setEditingId(as.id);
+    setShowAdd(true);
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { teacherId, subjectId, gradeId } = formData;
-    if (!teacherId || !subjectId || !gradeId) return;
+    const { teacherId, subjectId, gradeId, passkey } = formData;
+    if (!teacherId || !subjectId || !gradeId || !passkey) return;
 
     const teacher = teachers.find(t => t.id === teacherId);
     const subject = subjects.find(s => s.id === subjectId);
@@ -56,7 +69,8 @@ export const SubjectAssignmentManager: React.FC = () => {
 
     if (!teacher || !subject || !grade) return;
 
-    const assignmentId = `${teacherId}_${subjectId}_${gradeId}`;
+    // Use specific ID if adding new, or reuse if editing
+    const assignmentId = editingId || `${teacherId}_${subjectId}_${gradeId}`;
     
     try {
       await setDoc(doc(db, 'assignments', assignmentId), {
@@ -67,13 +81,16 @@ export const SubjectAssignmentManager: React.FC = () => {
         gradeId,
         gradeName: grade.name,
         section: grade.section,
+        passkey,
         createdAt: new Date().toISOString()
       });
       setShowAdd(false);
-      toast.success('Assignment created successfully!');
+      setEditingId(null);
+      setFormData({ teacherId: '', subjectId: '', gradeId: '', passkey: '' });
+      toast.success(editingId ? 'Assignment updated!' : 'Assignment created!');
     } catch (err) {
       console.error(err);
-      toast.error('Failed to create assignment.');
+      toast.error('Failed to process assignment.');
     }
   };
 
@@ -98,10 +115,14 @@ export const SubjectAssignmentManager: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">Teacher Assignments</h2>
-          <p className="text-gray-500 font-medium">Assign teachers to specific subjects and sections.</p>
+          <p className="text-gray-500 font-medium">Assign teachers to specific subjects and sections with passkeys.</p>
         </div>
         <button 
-          onClick={() => setShowAdd(true)}
+          onClick={() => {
+            setEditingId(null);
+            setFormData({ teacherId: '', subjectId: '', gradeId: '', passkey: '' });
+            setShowAdd(true);
+          }}
           className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:scale-105 transition-transform"
         >
           <Plus className="w-5 h-5" /> New Assignment
@@ -111,14 +132,15 @@ export const SubjectAssignmentManager: React.FC = () => {
       <AnimatePresence>
         {showAdd && (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="bg-white p-8 rounded-2xl border border-indigo-100 shadow-xl"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white p-8 rounded-3xl border border-indigo-100 shadow-xl"
           >
-            <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <h3 className="text-lg font-black text-gray-900 mb-6">{editingId ? 'Edit Assignment' : 'Create New Assignment'}</h3>
+            <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Select Teacher</label>
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Teacher</label>
                 <select 
                   required
                   value={formData.teacherId}
@@ -127,13 +149,13 @@ export const SubjectAssignmentManager: React.FC = () => {
                 >
                   <option value="">Select Teacher</option>
                   {teachers.map(t => (
-                    <option key={t.id} value={t.id}>{t.name} ({t.teacherId})</option>
+                    <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Select Subject</label>
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Subject</label>
                 <select 
                   required
                   value={formData.subjectId}
@@ -148,7 +170,7 @@ export const SubjectAssignmentManager: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Select Grade & Section</label>
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Grade & Section</label>
                 <select 
                   required
                   value={formData.gradeId}
@@ -162,57 +184,99 @@ export const SubjectAssignmentManager: React.FC = () => {
                 </select>
               </div>
 
-              <div className="md:col-span-3 flex gap-4">
-                <button type="button" onClick={() => setShowAdd(false)} className="flex-grow py-4 bg-gray-100 text-gray-600 rounded-xl font-bold">Cancel</button>
-                <button type="submit" className="flex-grow py-4 bg-indigo-600 text-white rounded-xl font-bold">Assign Teacher</button>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Manual Passkey</label>
+                <div className="relative">
+                  <input 
+                    required
+                    type="text"
+                    placeholder="e.g. CHEM11A2025"
+                    value={formData.passkey}
+                    onChange={e => setFormData({ ...formData, passkey: e.target.value })}
+                    className="w-full p-4 pl-12 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 font-mono"
+                  />
+                  <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                </div>
+              </div>
+
+              <div className="lg:col-span-4 flex gap-4">
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setShowAdd(false);
+                    setEditingId(null);
+                  }} 
+                  className="flex-grow py-4 bg-gray-100 text-gray-600 rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="flex-grow py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100">
+                  {editingId ? 'Update Assignment' : 'Create Assignment'}
+                </button>
               </div>
             </form>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {assignments.map((as) => (
-          <motion.div 
-            layout
-            key={as.id}
-            className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden"
-          >
-            <div className="flex justify-between items-start mb-4">
-              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-                <Users className="w-6 h-6" />
-              </div>
-              <button 
-                onClick={() => handleDelete(as.id)}
-                className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="space-y-1">
-              <h3 className="font-black text-gray-900 text-lg leading-tight">{as.teacherName}</h3>
-              <p className="text-xs text-indigo-500 font-bold uppercase tracking-widest">{as.subjectName}</p>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-gray-50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <GraduationCap className="w-4 h-4 text-gray-400" />
-                <span className="text-sm font-bold text-gray-700">Grade {as.gradeName}{as.section}</span>
-              </div>
-            </div>
-
-            <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
-              <BookOpen className="w-20 h-20 text-indigo-600" />
-            </div>
-          </motion.div>
-        ))}
-        {assignments.length === 0 && (
-          <div className="col-span-full py-20 text-center bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
-            <AlertTriangle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No assignments found. Start by assigning a teacher.</p>
-          </div>
-        )}
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100 font-black text-[10px] text-gray-400 uppercase tracking-widest">
+              <th className="px-8 py-5">Teacher</th>
+              <th className="px-8 py-5">Subject</th>
+              <th className="px-8 py-5">Grade / Section</th>
+              <th className="px-8 py-5">Passkey</th>
+              <th className="px-8 py-5 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {assignments.map((as) => (
+              <tr key={as.id} className="hover:bg-gray-50 transition-colors group">
+                <td className="px-8 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <span className="font-bold text-gray-900">{as.teacherName}</span>
+                  </div>
+                </td>
+                <td className="px-8 py-4">
+                  <div className="flex items-center gap-2 text-indigo-600 font-bold text-sm">
+                    <BookOpen className="w-4 h-4" /> {as.subjectName}
+                  </div>
+                </td>
+                <td className="px-8 py-4 text-sm font-bold text-gray-700">
+                  Grade {as.gradeName}{as.section}
+                </td>
+                <td className="px-8 py-4">
+                  <code className="bg-gray-100 px-3 py-1 rounded text-xs font-mono font-black text-gray-500">{as.passkey}</code>
+                </td>
+                <td className="px-8 py-4 text-right">
+                  <div className="flex justify-end gap-2">
+                    <button 
+                      onClick={() => handleEdit(as)}
+                      className="p-2 text-gray-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-all"
+                    >
+                      <Pencil className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(as.id)}
+                      className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {assignments.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-8 py-20 text-center text-gray-400 font-medium">No teaching assignments available.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
