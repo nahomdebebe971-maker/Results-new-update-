@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -9,6 +9,9 @@ export const auth = getAuth(app);
 
 export const loginWithEmail = (email: string, pass: string) => 
   signInWithEmailAndPassword(auth, email, pass);
+
+export const registerWithEmail = (email: string, pass: string) =>
+  createUserWithEmailAndPassword(auth, email, pass);
 
 export const logout = () => signOut(auth);
 

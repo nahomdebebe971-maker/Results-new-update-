@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, User, Key, Loader2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { loginWithEmail } from '../lib/firebase';
+import { loginWithEmail, registerWithEmail } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
 
 interface LoginModalProps {
@@ -12,6 +12,7 @@ interface LoginModalProps {
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const { loginTeacher } = useAuth();
   const [type, setType] = useState<'ADMIN' | 'TEACHER'>('ADMIN');
+  const [isRegistering, setIsRegistering] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -42,10 +43,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     setLoading(true);
     setError('');
     try {
-      await loginWithEmail(email, password);
+      if (isRegistering) {
+        await registerWithEmail(email, password);
+      } else {
+        await loginWithEmail(email, password);
+      }
       onClose();
     } catch (err: any) {
-      setError('Invalid email or password.');
+      if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please login.');
+        setIsRegistering(false);
+      } else {
+        setError(isRegistering ? 'Failed to create account.' : 'Invalid email or password.');
+      }
     } finally {
       setLoading(false);
     }
@@ -180,9 +190,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                   disabled={loading}
                   className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  {loading ? <Loader2 className="animate-spin w-5 h-5" /> : `Login as ${type === 'ADMIN' ? 'Admin' : 'Teacher'}`}
+                  {loading ? <Loader2 className="animate-spin w-5 h-5" /> : (isRegistering ? 'Create Admin Account' : `Login as ${type === 'ADMIN' ? 'Admin' : 'Teacher'}`)}
                 </button>
               </form>
+
+              {type === 'ADMIN' && (
+                <button 
+                  onClick={() => setIsRegistering(!isRegistering)}
+                  className="w-full mt-6 text-sm font-bold text-gray-400 hover:text-indigo-600 transition-colors uppercase tracking-widest text-center"
+                >
+                  {isRegistering ? 'Already have an account? Login' : "Don't have an account? Register"}
+                </button>
+              )}
             </div>
           </motion.div>
         </div>
