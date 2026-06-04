@@ -45,24 +45,30 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     const MASTER_EMAIL = 'nahomdebebe971@gmail.com';
     const MASTER_PASS = 'Nahom@110108';
 
-    if (email !== MASTER_EMAIL || password !== MASTER_PASS) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = password.trim();
+
+    if (cleanEmail !== MASTER_EMAIL || cleanPass !== MASTER_PASS) {
       setError('Invalid admin credentials.');
       setLoading(false);
       return;
     }
 
     try {
+      // First attempt: Login
       try {
-        await loginWithEmail(email, password);
+        await loginWithEmail(cleanEmail, cleanPass);
       } catch (loginErr: any) {
-        if (loginErr.code === 'auth/user-not-found' || loginErr.code === 'auth/invalid-credential') {
-          // Attempt to register if login failed due to missing user
-          // Note: invalid-credential can sometimes be returned if user doesn't exist in some configs
+        // If login failed, and credentials match MASTER, try Registering
+        if (cleanEmail === MASTER_EMAIL && cleanPass === MASTER_PASS) {
           try {
-            await registerAdmin(email, password);
-          } catch (regErr) {
-            // If already exists, just show original error
-            throw loginErr;
+            await registerAdmin(cleanEmail, cleanPass);
+          } catch (regErr: any) {
+            // If registration also fails (e.g. already exists but password wrong), throw the original login error
+            if (regErr.code === 'auth/email-already-in-use') {
+              throw loginErr; 
+            }
+            throw regErr;
           }
         } else {
           throw loginErr;
@@ -70,7 +76,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       }
       onClose();
     } catch (err: any) {
-      setError('Authentication failed. Please verify your credentials.');
+      console.error('Auth Error:', err);
+      // Provide actionable feedback
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found') {
+        setError('Invalid credentials. If this is your first time, ensure you use the Master Admin details.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError('Email/Password login is not enabled in Firebase Console.');
+      } else {
+        setError(err.message || 'Authentication failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
