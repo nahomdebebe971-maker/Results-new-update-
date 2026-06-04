@@ -129,18 +129,21 @@ export const StudentPortal: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {Object.entries(student.results || {}).map(([subId, m]) => (
-                      <tr key={subId} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 font-semibold text-gray-900">{subId}</td>
-                        <td className="px-6 py-4 text-gray-600">{m.semester1}</td>
-                        <td className="px-6 py-4 text-gray-600">{m.semester2}</td>
-                        <td className="px-6 py-4">
-                          <span className={`font-bold ${m.average >= (config?.passMark || 50) ? 'text-green-600' : 'text-red-600'}`}>
-                            {m.average.toFixed(1)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {Object.entries(student.results || {}).map(([subId, m]) => {
+                      const marks = m as { semester1: number; semester2: number; average: number };
+                      return (
+                        <tr key={subId} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 font-semibold text-gray-900">{subId}</td>
+                          <td className="px-6 py-4 text-gray-600">{marks.semester1}</td>
+                          <td className="px-6 py-4 text-gray-600">{marks.semester2}</td>
+                          <td className="px-6 py-4">
+                            <span className={`font-bold ${marks.average >= (config?.passMark || 50) ? 'text-green-600' : 'text-red-600'}`}>
+                              {marks.average.toFixed(1)}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

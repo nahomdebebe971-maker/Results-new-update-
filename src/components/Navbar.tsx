@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { LogOut, LayoutDashboard, UserCircle, BookOpen, Settings } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { logout, signInWithGoogle } from '../lib/firebase';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
+import { LoginModal } from './LoginModal';
 
 export const Navbar: React.FC = () => {
-  const { user, role } = useAuth();
+  const { user, role, logout } = useAuth();
   const { config } = useSchoolConfig();
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
 
   return (
     <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
@@ -22,7 +23,7 @@ export const Navbar: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
-            {user ? (
+            {(user || role) ? (
               <>
                 <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-gray-50 rounded-full border border-gray-100">
                   <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -41,7 +42,7 @@ export const Navbar: React.FC = () => {
               </>
             ) : (
               <button
-                onClick={signInWithGoogle}
+                onClick={() => setIsLoginOpen(true)}
                 className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-all shadow-sm"
               >
                 Staff Login
@@ -50,6 +51,7 @@ export const Navbar: React.FC = () => {
           </div>
         </div>
       </div>
+      <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
     </nav>
   );
 };

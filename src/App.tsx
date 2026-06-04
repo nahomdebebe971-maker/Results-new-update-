@@ -22,7 +22,7 @@ const AppContent: React.FC = () => {
 
   // Determine which portal to show
   // If not logged in, show Student Portal (Public search)
-  if (!user) {
+  if (!user && !role) {
     return (
       <Layout>
         <StudentPortal />
@@ -33,9 +33,9 @@ const AppContent: React.FC = () => {
   // If logged in, show portal based on role
   return (
     <Layout>
-      {role === 'ADMIN' && <AdminPortal />}
-      {role === 'TEACHER' && <TeacherPortal />}
-      {role === 'STUDENT' && <StudentPortal />}
+      {role === 'ADMIN' ? <AdminPortal /> : 
+       role === 'TEACHER' ? <TeacherPortal /> : 
+       <StudentPortal />}
     </Layout>
   );
 };
