@@ -73,10 +73,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
-        setUser(fbUser);
-        // Only Admin uses Firebase Auth in this setup
-        setRole('ADMIN');
-        setLoading(false);
+        // Strict Admin Email Check
+        if (fbUser.email === 'nahomdebebe971@gmail.com') {
+          setUser(fbUser);
+          setRole('ADMIN');
+          setLoading(false);
+        } else {
+          // If somehow another user logged in, log them out
+          await signOut(auth);
+          setUser(null);
+          setRole(null);
+          setLoading(false);
+        }
       } else {
         const hasSession = await checkStaffSession();
         if (!hasSession) {

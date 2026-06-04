@@ -10,7 +10,7 @@ export const auth = getAuth(app);
 export const loginWithEmail = (email: string, pass: string) => 
   signInWithEmailAndPassword(auth, email, pass);
 
-export const registerWithEmail = (email: string, pass: string) =>
+export const registerAdmin = (email: string, pass: string) =>
   createUserWithEmailAndPassword(auth, email, pass);
 
 export const logout = () => signOut(auth);
