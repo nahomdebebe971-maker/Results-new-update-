@@ -30,6 +30,18 @@ export interface Subject {
   createdAt: string;
 }
 
+export interface SubjectAssignment {
+  id: string; // teacherId_subjectId_gradeId
+  teacherId: string;
+  teacherName: string;
+  subjectId: string;
+  subjectName: string;
+  gradeId: string; // The specific grade-section doc ID
+  gradeName: string;
+  section: string;
+  createdAt: string;
+}
+
 export interface StudentResults {
   [subjectId: string]: {
     semester1: number;

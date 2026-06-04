@@ -1,18 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, GraduationCap, Loader2, Upload, FileDown, Search, Filter } from 'lucide-react';
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc, getDocs } from 'firebase/firestore';
+import { 
+  Plus, Trash2, GraduationCap, Loader2, Upload, 
+  FileDown, Search, Filter, X, CheckCircle2, AlertCircle 
+} from 'lucide-react';
+import { 
+  collection, addDoc, deleteDoc, doc, onSnapshot, 
+  query, orderBy, setDoc, getDocs, writeBatch 
+} from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Student, Grade } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
+import { toast } from 'react-hot-toast';
+
+interface ImportPreview {
+  name: string;
+  sex: 'M' | 'F';
+  age: number;
+  isValid: boolean;
+  error?: string;
+}
 
 export const StudentManagement: React.FC = () => {
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({ name: '', sex: 'M' as 'M' | 'F', age: 18, grade: '', section: '' });
+  
+  // Bulk Import state
+  const [importPreview, setImportPreview] = useState<ImportPreview[]>([]);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importGradeSearch, setImportGradeSearch] = useState({ grade: '', section: '' });
 
   useEffect(() => {
     const qS = query(collection(db, 'students'), orderBy('createdAt', 'desc'));
@@ -37,6 +58,153 @@ export const StudentManagement: React.FC = () => {
     return `ST${num}`;
   };
 
+  const parseTextLine = (line: string): ImportPreview | null => {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+
+    // Regex for: [num]. [name]. [sex]. [age]
+    // Handles dots, spaces, varying cases
+    // Example: 1. Nahom Debebe. M. 17
+    const regex = /^\d*\.?\s*(.*?)\.\s*([MFmf])\.\s*(\d+)$/;
+    const match = trimmed.match(regex);
+
+    if (match) {
+      const name = match[1].trim();
+      const sex = match[2].toUpperCase() as 'M' | 'F';
+      const age = parseInt(match[3]);
+      
+      return {
+        name,
+        sex,
+        age,
+        isValid: name.length > 2 && age > 0 && age < 100
+      };
+    }
+
+    // Fallback for CSV-like if dots are missing but spaces exist: "Name M 18"
+    const parts = trimmed.split(/[\s,.]+/).filter(Boolean);
+    if (parts.length >= 3) {
+      const ageStr = parts[parts.length - 1];
+      const sexStr = parts[parts.length - 2].toUpperCase();
+      const age = parseInt(ageStr);
+      
+      if (!isNaN(age) && (sexStr === 'M' || sexStr === 'F')) {
+        const name = parts.slice(0, -2).join(' ');
+        return {
+          name,
+          sex: sexStr as 'M' | 'F',
+          age,
+          isValid: name.length > 2
+        };
+      }
+    }
+
+    return {
+      name: trimmed,
+      sex: 'M',
+      age: 0,
+      isValid: false,
+      error: 'Cannot parse format. Required: Name. Sex. Age'
+    };
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const content = evt.target?.result;
+      if (!content) return;
+
+      const results: ImportPreview[] = [];
+
+      if (file.name.endsWith('.txt')) {
+        const lines = (content as string).split('\n');
+        lines.forEach(line => {
+          const parsed = parseTextLine(line);
+          if (parsed) results.push(parsed);
+        });
+      } else {
+        const bstr = content;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws) as any[];
+        
+        data.forEach(row => {
+          const name = row.Name || row.name || '';
+          const sex = (row.Sex || row.sex || 'M').toString().toUpperCase() as 'M' | 'F';
+          const age = parseInt(row.Age || row.age) || 0;
+          results.push({
+            name,
+            sex: (sex === 'M' || sex === 'F') ? sex : 'M',
+            age,
+            isValid: name.length > 2 && age > 0
+          });
+        });
+      }
+
+      setImportPreview(results);
+      setShowImportDialog(true);
+    };
+
+    if (file.name.endsWith('.txt')) {
+      reader.readAsText(file);
+    } else {
+      reader.readAsBinaryString(file);
+    }
+  };
+
+  const finalizeImport = async () => {
+    if (!importGradeSearch.grade || !importGradeSearch.section) {
+      toast.error('Please select a grade and section for this import.');
+      return;
+    }
+
+    setImporting(true);
+    const validRows = importPreview.filter(p => p.isValid);
+    const batchSize = 50;
+    let successCount = 0;
+
+    try {
+      for (let i = 0; i < validRows.length; i += batchSize) {
+        const batch = writeBatch(db);
+        const chunk = validRows.slice(i, i + batchSize);
+        
+        chunk.forEach(p => {
+          const studentId = generateId();
+          batch.set(doc(db, 'students', studentId), {
+            name: p.name,
+            sex: p.sex,
+            age: p.age,
+            grade: importGradeSearch.grade,
+            section: importGradeSearch.section,
+            studentId,
+            createdAt: new Date().toISOString(),
+          });
+          successCount++;
+        });
+
+        await batch.commit();
+      }
+
+      toast.success(`Succesfully imported ${successCount} students to Grade ${importGradeSearch.grade}${importGradeSearch.section}`);
+      setShowImportDialog(false);
+      setImportPreview([]);
+    } catch (err) {
+      console.error(err);
+      toast.error('Import failed midway. Check your connection.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const filteredStudents = students.filter(s => 
+    s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    s.studentId.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.grade) return;
@@ -50,44 +218,12 @@ export const StudentManagement: React.FC = () => {
       });
       setFormData({ name: '', sex: 'M', age: 18, grade: '', section: '' });
       setShowAdd(false);
+      toast.success('Student added successfully!');
     } catch (err) {
       console.error(err);
+      toast.error('Failed to add student.');
     }
   };
-
-  const handleBulkImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws) as any[];
-
-      // Preview logic would go here, but for now we direct import
-      for (const row of data) {
-        const studentId = generateId();
-        await setDoc(doc(db, 'students', studentId), {
-          name: row.Name,
-          sex: row.Sex || 'M',
-          age: parseInt(row.Age) || 18,
-          grade: row.Grade?.toString() || '',
-          section: row.Section?.toString() || '',
-          studentId,
-          createdAt: new Date().toISOString(),
-        });
-      }
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  const filteredStudents = students.filter(s => 
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    s.studentId.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   return (
     <div className="space-y-8">
@@ -99,7 +235,7 @@ export const StudentManagement: React.FC = () => {
         <div className="flex flex-wrap gap-3 w-full md:w-auto">
           <label className="flex items-center gap-2 bg-white text-gray-700 border border-gray-200 px-4 py-2.5 rounded-xl font-bold hover:bg-gray-50 transition-all text-sm cursor-pointer">
             <Upload className="w-5 h-5" /> Import Bulk
-            <input type="file" className="hidden" accept=".xlsx,.csv,.txt" onChange={handleBulkImport} />
+            <input type="file" className="hidden" accept=".xlsx,.csv,.txt" onChange={handleFileSelect} />
           </label>
           <button 
             onClick={() => setShowAdd(true)}
@@ -127,6 +263,105 @@ export const StudentManagement: React.FC = () => {
       </div>
 
       <AnimatePresence>
+        {showImportDialog && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-6 bg-gray-900 text-white flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-black">Import Students Preview</h3>
+                  <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">Review your data before finalizing</p>
+                </div>
+                <button onClick={() => setShowImportDialog(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="p-6 border-b border-gray-100 bg-indigo-50/30 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Target Grade</label>
+                  <select 
+                    value={importGradeSearch.grade}
+                    onChange={e => setImportGradeSearch({ ...importGradeSearch, grade: e.target.value })}
+                    className="w-full p-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 font-bold"
+                  >
+                    <option value="">Select Grade</option>
+                    {[...new Set(grades.map(g => g.name))].map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Target Section</label>
+                  <select 
+                    value={importGradeSearch.section}
+                    onChange={e => setImportGradeSearch({ ...importGradeSearch, section: e.target.value })}
+                    className="w-full p-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 font-bold"
+                  >
+                    <option value="">Select Section</option>
+                    {grades.filter(g => g.name === importGradeSearch.grade).map(g => (
+                      <option key={g.id} value={g.section}>{g.section}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex-grow overflow-auto p-6">
+                <div className="border border-gray-100 rounded-2xl overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 text-[10px] uppercase font-black text-gray-400 tracking-widest">
+                      <tr>
+                        <th className="px-6 py-4">Status</th>
+                        <th className="px-6 py-4">Name</th>
+                        <th className="px-6 py-4 text-center">Sex</th>
+                        <th className="px-6 py-4 text-center">Age</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {importPreview.map((p, idx) => (
+                        <tr key={idx} className={p.isValid ? 'bg-white' : 'bg-red-50/50'}>
+                          <td className="px-6 py-3">
+                            {p.isValid ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                            ) : (
+                              <div className="flex items-center gap-1 text-red-500 text-[10px] font-bold">
+                                <AlertCircle className="w-3 h-3" /> Error
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-3 font-bold text-gray-700">{p.name || <span className="text-red-400 italic">Empty</span>}</td>
+                          <td className="px-6 py-3 text-center text-xs font-mono">{p.sex}</td>
+                          <td className="px-6 py-3 text-center text-xs font-mono">{p.age}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
+                <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                  Valid: {importPreview.filter(p => p.isValid).length} • Invalid: {importPreview.filter(p => !p.isValid).length}
+                </div>
+                <div className="flex gap-4">
+                  <button onClick={() => setShowImportDialog(false)} className="px-6 py-3 font-bold text-gray-600 hover:bg-gray-200 rounded-xl transition-all">Cancel</button>
+                  <button 
+                    disabled={importing || importPreview.filter(p => p.isValid).length === 0}
+                    onClick={finalizeImport}
+                    className="px-8 py-3 bg-indigo-600 text-white font-black rounded-xl shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2"
+                  >
+                    {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    Confirm Import
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {showAdd && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}

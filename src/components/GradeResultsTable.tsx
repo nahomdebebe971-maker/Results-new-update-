@@ -63,8 +63,12 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
     fetchData();
   }, [grade]);
 
-  const getMark = (studentId: string, subjectId: string) => {
-    return marks.find(m => m.studentId === studentId && m.subjectId === subjectId);
+  const getMark = (studentId: string, subject: Subject) => {
+    // Try by UID first (new system), then by Name (old system)
+    return marks.find(m => 
+      m.studentId === studentId && 
+      (m.subjectId === subject.id || m.subjectId === subject.name)
+    );
   };
 
   const formatMark = (val: number | undefined | null) => {
@@ -131,7 +135,7 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
       };
 
       subjects.forEach(sub => {
-        const m = getMark(student.studentId, sub.id);
+        const m = getMark(student.studentId, sub);
         row[`${sub.name} (S1)`] = m ? m.semester1 : 'Unfilled';
         row[`${sub.name} (S2)`] = m ? m.semester2 : 'Unfilled';
         row[`${sub.name} (Avg)`] = m ? ((m.semester1 + m.semester2) / 2).toFixed(1) : 'Unfilled';
@@ -278,7 +282,7 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
                   <td className="px-6 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-500">{student.age}</td>
 
                   {subjects.map(sub => {
-                    const m = getMark(student.studentId, sub.id);
+                    const m = getMark(student.studentId, sub);
                     const avg = m ? (m.semester1 + m.semester2) / 2 : null;
                     return (
                       <React.Fragment key={sub.id}>

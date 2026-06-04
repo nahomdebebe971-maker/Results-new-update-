@@ -15,6 +15,7 @@ import { StudentManagement } from '../components/StudentManagement';
 import { SchoolSettings } from '../components/SchoolSettings';
 import { RosterGenerator } from '../components/RosterGenerator';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
+import { SubjectAssignmentManager } from '../components/SubjectAssignment';
 
 import { DecisionDashboard } from '../components/DecisionDashboard';
 
@@ -46,6 +47,7 @@ export const AdminPortal: React.FC = () => {
     { id: 'students', label: 'Students', icon: GraduationCap },
     { id: 'grades', label: 'Academic Structure', icon: UsersRound },
     { id: 'subjects', label: 'Curriculum', icon: BookOpen },
+    { id: 'assignments', label: 'Teacher Assignments', icon: Users },
     { id: 'analytics', label: 'Student Rankings', icon: Award },
     { id: 'insights', label: 'Decision Insights', icon: TrendingUp },
     { id: 'reports', label: 'Transcripts', icon: FileDown },
@@ -101,6 +103,7 @@ export const AdminPortal: React.FC = () => {
           {activeTab === 'students' && <StudentManagementWrapper />}
           {activeTab === 'grades' && <GradeManagementWrapper />}
           {activeTab === 'subjects' && <SubjectManagementWrapper />}
+          {activeTab === 'assignments' && <SubjectAssignmentManager />}
           {activeTab === 'reports' && <RosterGenerator config={config} />}
           {activeTab === 'analytics' && <AnalyticsDashboard config={config} />}
           {activeTab === 'insights' && <DecisionDashboard config={config} />}

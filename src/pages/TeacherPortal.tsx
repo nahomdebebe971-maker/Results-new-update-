@@ -28,47 +28,77 @@ export const TeacherPortal: React.FC = () => {
   const [marks, setMarks] = useState<Record<string, { semester1: number, semester2: number, teacherId?: string }>>({});
 
   const [selection, setSelection] = useState({
-    grade: '',
-    subject: '',
+    gradeId: '',
+    subjectId: '',
     passkey: ''
   });
 
+  const [allGrades, setAllGrades] = useState<Grade[]>([]);
+  const [allSubjects, setAllSubjects] = useState<Subject[]>([]);
+  const [assignments, setAssignments] = useState<SubjectAssignment[]>([]);
+  
   useEffect(() => {
     const fetchMeta = async () => {
+      // Fetch all core meta
       const gSnap = await getDocs(collection(db, 'grades'));
-      setGrades(gSnap.docs.map(d => ({ id: d.id, ...d.data() } as Grade)));
+      const gradeList = gSnap.docs.map(d => ({ id: d.id, ...d.data() } as Grade));
+      setAllGrades(gradeList);
+
       const sSnap = await getDocs(collection(db, 'subjects'));
-      setSubjects(sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject)));
+      const subjectList = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject));
+      setAllSubjects(subjectList);
+
+      // Fetch assignments for THIS teacher
+      if (teacherId) {
+        const qA = query(collection(db, 'assignments'), where('teacherId', '==', teacherId));
+        const aSnap = await getDocs(qA);
+        const assignmentList = aSnap.docs.map(d => ({ id: d.id, ...d.data() } as SubjectAssignment));
+        setAssignments(assignmentList);
+
+        // Derive allowed selections
+        const allowedGradeIds = [...new Set(assignmentList.map(a => a.gradeId))];
+        setGrades(gradeList.filter(g => allowedGradeIds.includes(g.id)));
+      }
     };
     fetchMeta();
-  }, []);
+  }, [teacherId]);
+
+  // When grade selection changes, filter subjects allowed for THAT grade
+  useEffect(() => {
+    if (selection.gradeId) {
+      const allowedSubjectIds = assignments
+        .filter(a => a.gradeId === selection.gradeId)
+        .map(a => a.subjectId);
+      setSubjects(allSubjects.filter(s => allowedSubjectIds.includes(s.id)));
+    } else {
+      setSubjects([]);
+    }
+    setSelection(prev => ({ ...prev, subjectId: '' }));
+  }, [selection.gradeId, assignments, allSubjects]);
 
   const handleVerify = async () => {
-    const sub = subjects.find(s => s.name === selection.subject);
-    if (sub && sub.passkey === selection.passkey) {
+    const sub = allSubjects.find(s => s.id === selection.subjectId);
+    const grade = allGrades.find(g => g.id === selection.gradeId);
+    if (sub && grade && sub.passkey === selection.passkey) {
       setLoading(true);
       try {
-        const q = query(
-          collection(db, 'students'), 
-          where('grade', '==', selection.grade.replace(/[A-Z]/g, '')), // Simplified grade comparison
-          where('section', '==', selection.grade.match(/[A-Z]/)?.[0] || '')
-        );
-        // Wait, GradeManagement stores name+section separately? 
-        // Let's check selection.grade. 
-        // Better: filter students by matching grade name and section exactly.
-        const [gName, gSec] = [selection.grade.replace(/[^0-9]/g, ''), selection.grade.replace(/[0-9]/g, '')];
-        
         const q2 = query(
           collection(db, 'students'),
-          where('grade', '==', gName),
-          where('section', '==', gSec)
+          where('grade', '==', grade.name),
+          where('section', '==', grade.section)
         );
         const sSnap = await getDocs(q2);
         const studentList = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
         setStudents(studentList);
 
         // Fetch existing marks
-        const mSnap = await getDocs(query(collection(db, 'marks'), where('subjectId', '==', selection.subject), where('grade', '==', gName), where('section', '==', gSec)));
+        const qM = query(
+          collection(db, 'marks'), 
+          where('subjectId', '==', sub.id), 
+          where('grade', '==', grade.name), 
+          where('section', '==', grade.section)
+        );
+        const mSnap = await getDocs(qM);
         const existingMarks: any = {};
         mSnap.docs.forEach(d => {
           const data = d.data();
@@ -88,7 +118,7 @@ export const TeacherPortal: React.FC = () => {
         setLoading(false);
       }
     } else {
-      setError('Invalid passkey for this subject.');
+      setError('Invalid passkey or selection.');
     }
   };
 
@@ -113,30 +143,30 @@ export const TeacherPortal: React.FC = () => {
     setSaving(true);
     setSaveSuccess(false);
     try {
-      const [gName, gSec] = [selection.grade.replace(/[^0-9]/g, ''), selection.grade.replace(/[0-9]/g, '')];
+      const sub = subjects.find(s => s.id === selection.subjectId);
+      const grade = grades.find(g => g.id === selection.gradeId);
+      if (!sub || !grade) throw new Error('Selection lost');
 
       for (const [studentId, values] of Object.entries(marks)) {
         const studentMarks = values as { semester1: number, semester2: number, teacherId?: string };
         
-        // Skip if teacherId mismatch (extra safety)
         if (studentMarks.teacherId && studentMarks.teacherId !== teacherId) continue;
 
-        const markId = `${studentId}_${selection.subject}`;
+        const markId = `${studentId}_${sub.id}`;
         await setDoc(doc(db, 'marks', markId), {
           studentId,
-          subjectId: selection.subject,
-          grade: gName,
-          section: gSec,
+          subjectId: sub.id,
+          grade: grade.name,
+          section: grade.section,
           semester1: studentMarks.semester1,
           semester2: studentMarks.semester2,
-          teacherId: teacherId, // Register ownership
+          teacherId: teacherId, 
           updatedAt: new Date().toISOString()
         });
       }
 
-      // Trigger recalculation for the entire grade/section
       if (config) {
-        await calculateResultsForGrade(gName, gSec, config);
+        await calculateResultsForGrade(grade.name, grade.section, config);
       }
 
       setSaveSuccess(true);
@@ -175,12 +205,12 @@ export const TeacherPortal: React.FC = () => {
                 <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Grade & Section</label>
                 <select 
                   className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition-all appearance-none"
-                  value={selection.grade}
-                  onChange={(e) => setSelection({ ...selection, grade: e.target.value })}
+                  value={selection.gradeId}
+                  onChange={(e) => setSelection({ ...selection, gradeId: e.target.value })}
                 >
                   <option value="">Select Grade</option>
                   {grades.map(g => (
-                    <option key={g.id} value={`${g.name}${g.section}`}>Grade {g.name}{g.section}</option>
+                    <option key={g.id} value={g.id}>Grade {g.name}{g.section}</option>
                   ))}
                 </select>
               </div>
@@ -189,18 +219,18 @@ export const TeacherPortal: React.FC = () => {
                 <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Subject</label>
                 <select 
                   className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition-all appearance-none"
-                  value={selection.subject}
-                  onChange={(e) => setSelection({ ...selection, subject: e.target.value })}
+                  value={selection.subjectId}
+                  onChange={(e) => setSelection({ ...selection, subjectId: e.target.value })}
                 >
                   <option value="">Select Subject</option>
                   {subjects.map(s => (
-                    <option key={s.id} value={s.name}>{s.name}</option>
+                    <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
               </div>
 
               <button
-                disabled={!selection.grade || !selection.subject}
+                disabled={!selection.gradeId || !selection.subjectId}
                 onClick={() => setStep(2)}
                 className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all disabled:opacity-50"
               >
@@ -223,7 +253,7 @@ export const TeacherPortal: React.FC = () => {
                 <Key className="w-8 h-8" />
               </div>
               <h2 className="text-3xl font-black text-gray-900 tracking-tight">Access Verification</h2>
-              <p className="text-gray-500 mt-2">Enter the passkey for {selection.subject} ({selection.grade}).</p>
+              <p className="text-gray-500 mt-2">Enter the passkey for {subjects.find(s => s.id === selection.subjectId)?.name} ({grades.find(g => g.id === selection.gradeId)?.name}{grades.find(g => g.id === selection.gradeId)?.section}).</p>
             </div>
 
             <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm space-y-6">
@@ -281,7 +311,7 @@ export const TeacherPortal: React.FC = () => {
                   <ChevronLeft className="w-4 h-4" /> Change Class
                 </button>
                 <h2 className="text-3xl font-black text-gray-900 tracking-tight">
-                  Marks Entry: <span className="text-indigo-600">{selection.subject} - {selection.grade}</span>
+                  Marks Entry: <span className="text-indigo-600">{subjects.find(s => s.id === selection.subjectId)?.name} - {grades.find(g => g.id === selection.gradeId)?.name}{grades.find(g => g.id === selection.gradeId)?.section}</span>
                 </h2>
               </div>
               

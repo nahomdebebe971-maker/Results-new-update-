@@ -40,7 +40,7 @@ export const SchoolSettings: React.FC = () => {
   const handleDeleteAllData = async () => {
     setIsResetting(true);
     try {
-      const collections = ['students', 'teachers', 'grades', 'subjects', 'marks'];
+      const collections = ['students', 'teachers', 'grades', 'subjects', 'marks', 'assignments'];
       const batch = writeBatch(db);
       let totalDeleted = 0;
 
