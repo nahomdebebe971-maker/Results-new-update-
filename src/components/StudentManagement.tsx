@@ -78,9 +78,17 @@ export const StudentManagement: React.FC = () => {
     }
   };
 
-  const generateId = () => {
-    const num = Math.floor(1000 + Math.random() * 9000);
-    return `ST${num}`;
+  const generateId = (existingIds: string[]) => {
+    let id = '';
+    let isUnique = false;
+    while (!isUnique) {
+      const digits = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+      id = `ST${digits}`;
+      if (!existingIds.includes(id)) {
+        isUnique = true;
+      }
+    }
+    return id;
   };
 
   const parseTextLine = (line: string): ImportPreview | null => {
@@ -191,6 +199,7 @@ export const StudentManagement: React.FC = () => {
     const validRows = importPreview.filter(p => p.isValid);
     const batchSize = 50;
     let successCount = 0;
+    const existingIds = students.map(s => s.studentId);
 
     try {
       for (let i = 0; i < validRows.length; i += batchSize) {
@@ -198,7 +207,8 @@ export const StudentManagement: React.FC = () => {
         const chunk = validRows.slice(i, i + batchSize);
         
         chunk.forEach(p => {
-          const studentId = generateId();
+          const studentId = generateId(existingIds);
+          existingIds.push(studentId);
           batch.set(doc(db, 'students', studentId), {
             name: p.name,
             sex: p.sex,
@@ -234,7 +244,8 @@ export const StudentManagement: React.FC = () => {
     e.preventDefault();
     if (!formData.name || !formData.grade) return;
     
-    const studentId = generateId();
+    const existingIds = students.map(s => s.studentId);
+    const studentId = generateId(existingIds);
     try {
       await setDoc(doc(db, 'students', studentId), {
         ...formData,

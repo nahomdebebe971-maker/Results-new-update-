@@ -82,7 +82,7 @@ export const StudentPortal: React.FC = () => {
             type="text"
             value={studentId}
             onChange={(e) => setStudentId(e.target.value)}
-            placeholder="Enter Student ID (e.g. ST4959)"
+            placeholder="Enter Student ID (e.g. ST123456)"
             className="w-full pl-12 pr-32 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 transition-all outline-none text-lg font-medium"
           />
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-6 h-6" />
