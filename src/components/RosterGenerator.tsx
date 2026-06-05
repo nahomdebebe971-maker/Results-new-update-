@@ -154,21 +154,21 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
 
         term1Row.push(
           s.semester1?.total.toString() || '0',
-          s.semester1?.average.toFixed(1) || '0',
+          s.semester1?.average?.toFixed(1) || '0',
           s.semester1?.rank.toString() || '0',
           s1Status
         );
 
         term2Row.push(
           s.semester2?.total.toString() || '0',
-          s.semester2?.average.toFixed(1) || '0',
+          s.semester2?.average?.toFixed(1) || '0',
           s.semester2?.rank.toString() || '0',
           s2Status
         );
 
         aveRow.push(
           s.final?.total.toString() || '0',
-          s.final?.average.toFixed(1) || '0',
+          s.final?.average?.toFixed(1) || '0',
           s.final?.rank.toString() || '0',
           finalStatus
         );
@@ -795,7 +795,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                                   </td>
                                 ))}
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester1?.total}</td>
-                                <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester1?.average.toFixed(1)}</td>
+                                <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester1?.average?.toFixed(1) ?? '0.0'}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold bg-indigo-50/10 text-indigo-700">#{s.semester1?.rank}</td>
                                 <td className={`p-2 text-center text-[11px] ${statColor(s1Stat)}`}>{s1Stat}</td>
                               </tr>
@@ -807,7 +807,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                                   </td>
                                 ))}
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester2?.total}</td>
-                                <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester2?.average.toFixed(1)}</td>
+                                <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester2?.average?.toFixed(1) ?? '0.0'}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold bg-indigo-50/10 text-indigo-700">#{s.semester2?.rank}</td>
                                 <td className={`p-2 text-center text-[11px] ${statColor(s2Stat)}`}>{s2Stat}</td>
                               </tr>
@@ -819,7 +819,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                                   </td>
                                 ))}
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 text-gray-900">{s.final?.total}</td>
-                                <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 text-gray-900">{s.final?.average.toFixed(1)}</td>
+                                <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 text-gray-900">{s.final?.average?.toFixed(1) ?? '0.0'}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 bg-indigo-50/30 text-indigo-900">#{s.final?.rank}</td>
                                 <td className={`p-2 text-center text-[11px] font-black border-t border-gray-100 ${statColor(finalStat)}`}>{finalStat}</td>
                               </tr>

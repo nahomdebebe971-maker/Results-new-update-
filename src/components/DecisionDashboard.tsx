@@ -116,7 +116,7 @@ export const DecisionDashboard: React.FC<{ config: SchoolConfig | null }> = ({ c
       Name: s.name,
       ID: s.studentId,
       Grade: `${s.grade}${s.section}`,
-      Average: s.final?.average.toFixed(1) + '%',
+      Average: (s.final?.average?.toFixed(1) ?? '0.0') + '%',
       Status: s.final?.status
     }));
     const ws = XLSX.utils.json_to_sheet(data);
@@ -137,8 +137,8 @@ export const DecisionDashboard: React.FC<{ config: SchoolConfig | null }> = ({ c
       {/* Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard label="Total Students" value={stats.totalStudents} icon={Users} color="indigo" />
-        <MetricCard label="School Pass Rate" value={`${stats.overallPassRate.toFixed(1)}%`} icon={Award} color="emerald" />
-        <MetricCard label="Average Performance" value={`${stats.averageScore.toFixed(1)}%`} icon={TrendingUp} color="blue" />
+        <MetricCard label="School Pass Rate" value={`${(stats.overallPassRate ?? 0).toFixed(1)}%`} icon={Award} color="emerald" />
+        <MetricCard label="Average Performance" value={`${(stats.averageScore ?? 0).toFixed(1)}%`} icon={TrendingUp} color="blue" />
         <MetricCard label="Gender Equality" value={`${((stats.femaleStudents / (stats.totalStudents || 1)) * 100).toFixed(0)}% F`} icon={Filter} color="purple" />
       </div>
 
@@ -181,7 +181,7 @@ export const DecisionDashboard: React.FC<{ config: SchoolConfig | null }> = ({ c
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="text-lg font-black text-indigo-600 block leading-none">{student.final?.average.toFixed(1)}%</span>
+                    <span className="text-lg font-black text-indigo-600 block leading-none">{student.final?.average?.toFixed(1) ?? '0.0'}%</span>
                     <span className="text-[9px] font-black text-gray-300 uppercase tracking-[0.2em]">Merit Score</span>
                   </div>
                 </div>
@@ -216,7 +216,7 @@ export const DecisionDashboard: React.FC<{ config: SchoolConfig | null }> = ({ c
                         {tops.map((s, idx) => (
                           <div key={s.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
                             <span className="text-xs font-bold text-gray-700">{idx + 1}. {s.name}</span>
-                            <span className="text-xs font-black text-indigo-600">{s.final?.average.toFixed(1)}%</span>
+                            <span className="text-xs font-black text-indigo-600">{s.final?.average?.toFixed(1) ?? '0.0'}%</span>
                           </div>
                         ))}
                         {tops.length === 0 && <p className="text-[10px] text-gray-400 font-medium italic">No data published for this grade.</p>}
@@ -256,7 +256,7 @@ export const DecisionDashboard: React.FC<{ config: SchoolConfig | null }> = ({ c
                       return (
                         <div className="bg-white p-4 rounded-xl shadow-xl border border-gray-100">
                           <p className="text-xs font-black text-gray-900 mb-2 uppercase tracking-widest">{payload[0].payload.grade}</p>
-                          <p className="text-lg font-black text-indigo-600">{payload[0].value.toFixed(1)}% Avg</p>
+                          <p className="text-lg font-black text-indigo-600">{(payload[0].value ?? 0).toFixed(1)}% Avg</p>
                           <p className="text-[10px] font-bold text-gray-400">{payload[0].payload.students} Students</p>
                         </div>
                       );

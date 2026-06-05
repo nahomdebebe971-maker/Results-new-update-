@@ -8,6 +8,7 @@ import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { GradeResultsTable } from './GradeResultsTable';
+import { calculateAndSaveAnalytics } from '../services/analyticsService';
 
 export const GradeManagement: React.FC = () => {
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -57,6 +58,7 @@ export const GradeManagement: React.FC = () => {
     
     try {
       await updateConfig({ publishedGrades: newPublished });
+      await calculateAndSaveAnalytics();
       toast.success(isPublished ? 'Results unpublished for this grade' : 'Results published successfully!');
     } catch (err) {
       toast.error('Failed to update publishing status');

@@ -149,17 +149,17 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
       });
 
       row['S1 Total'] = student.semester1?.total || 'N/A';
-      row['S1 Avg'] = student.semester1?.average.toFixed(1) || 'N/A';
+      row['S1 Avg'] = student.semester1?.average !== undefined && student.semester1?.average !== null ? student.semester1.average.toFixed(1) : 'N/A';
       row['S1 Rank'] = student.semester1?.rank || 'N/A';
       row['S1 Status'] = student.semester1?.status || 'N/A';
 
       row['S2 Total'] = student.semester2?.total || 'N/A';
-      row['S2 Avg'] = student.semester2?.average.toFixed(1) || 'N/A';
+      row['S2 Avg'] = student.semester2?.average !== undefined && student.semester2?.average !== null ? student.semester2.average.toFixed(1) : 'N/A';
       row['S2 Rank'] = student.semester2?.rank || 'N/A';
       row['S2 Status'] = student.semester2?.status || 'N/A';
 
       row['Final Total'] = student.final?.total || 'N/A';
-      row['Final Avg'] = student.final?.average.toFixed(1) || 'N/A';
+      row['Final Avg'] = student.final?.average !== undefined && student.final?.average !== null ? student.final.average.toFixed(1) : 'N/A';
       row['Final Rank'] = student.final?.rank || 'N/A';
       row['Final Status'] = student.final?.status || 'N/A';
 

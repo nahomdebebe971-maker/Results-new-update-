@@ -110,3 +110,15 @@ export interface Mark {
 }
 
 export type UserRole = 'ADMIN' | 'TEACHER' | 'STUDENT';
+
+export interface SchoolAnalytics {
+  id: string;
+  updatedAt: string;
+  data: {
+    gradeAnalytics?: any;
+    subjectAnalytics?: any;
+    topStudents?: any;
+    schoolWideStats: any;
+    [key: string]: any;
+  };
+}

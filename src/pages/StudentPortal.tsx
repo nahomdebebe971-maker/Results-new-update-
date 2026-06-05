@@ -213,8 +213,8 @@ export const StudentPortal: React.FC = () => {
                           <td className="px-6 py-4 text-center text-gray-600 dark:text-gray-400 font-mono font-bold">{marks.semester1}</td>
                           <td className="px-6 py-4 text-center text-gray-600 dark:text-gray-400 font-mono font-bold">{marks.semester2}</td>
                           <td className="px-6 py-4 text-right">
-                            <span className={`text-lg font-black font-mono tracking-tight ${marks.average >= (config?.passMark || 50) ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
-                              {marks.average.toFixed(1)}%
+                            <span className={`text-lg font-black font-mono tracking-tight ${(marks.average ?? 0) >= (config?.passMark || 50) ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+                              {(marks.average ?? 0).toFixed(1)}%
                             </span>
                           </td>
                         </tr>
@@ -281,7 +281,7 @@ const ResultCard = ({ title, data, accent }: { title: string, data?: SemesterSum
       {data ? (
         <div className="space-y-3 relative z-10">
           <div className="flex justify-between items-baseline">
-            <span className="text-3xl font-black text-gray-900 dark:text-white tracking-tighter font-mono">{data.average.toFixed(1)}%</span>
+            <span className="text-3xl font-black text-gray-900 dark:text-white tracking-tighter font-mono">{(data.average ?? 0).toFixed(1)}%</span>
             <span className={`text-xs font-black px-3 py-1.5 rounded-xl uppercase tracking-wider ${data.status === 'Pass' ? 'bg-green-50 dark:bg-green-950/50 text-green-700 dark:text-green-400 border border-green-150 dark:border-green-900/30' : 'bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-400 border border-red-150 dark:border-red-900/30'}`}>
               {data.status}
             </span>

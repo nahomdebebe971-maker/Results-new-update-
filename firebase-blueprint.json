@@ -82,6 +82,16 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["studentId", "subjectId"]
+    },
+    "SchoolAnalytics": {
+      "title": "School Analytics",
+      "description": "Aggregated school performance data",
+      "type": "object",
+      "properties": {
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "data": { "type": "object" }
+      },
+      "required": ["updatedAt", "data"]
     }
   },
   "firestore": {
@@ -108,6 +118,10 @@
     "/marks/{markId}": {
       "schema": "Mark",
       "description": "Individual student subject marks"
+    },
+    "/analytics/{analyticsId}": {
+      "schema": "SchoolAnalytics",
+      "description": "Aggregated analytical reports"
     }
   }
 }

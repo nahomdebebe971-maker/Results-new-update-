@@ -405,8 +405,8 @@ export const TeacherPortal: React.FC = () => {
                           />
                         </td>
                         <td className="px-6 sm:px-10 py-5 text-right">
-                          <span className={`text-xl sm:text-2xl font-black tabular-nums ${((m.semester1 + m.semester2) / 2) >= (config?.passMark || 50) ? 'text-green-650' : 'text-red-500'}`}>
-                            {((m.semester1 + m.semester2) / 2).toFixed(1)}
+                          <span className={`text-xl sm:text-2xl font-black tabular-nums ${(((m.semester1 ?? 0) + (m.semester2 ?? 0)) / 2) >= (config?.passMark || 50) ? 'text-green-650' : 'text-red-500'}`}>
+                            {(((m.semester1 ?? 0) + (m.semester2 ?? 0)) / 2).toFixed(1)}
                           </span>
                         </td>
                       </tr>

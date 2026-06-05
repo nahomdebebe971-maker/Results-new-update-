@@ -37,9 +37,30 @@ const loadLogoImage = (url: string): Promise<HTMLImageElement> => {
       clearTimeout(timeout);
       resolve(img);
     };
-    img.onerror = (err) => {
+    img.onerror = () => {
       clearTimeout(timeout);
-      reject(new Error('School logo URL image could not be loaded (likely CORS or invalid address).'));
+      
+      // Fallback: load image via a reliable public CORS proxy to bypass target server CORS restrictions
+      const proxiedUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+      console.warn(`Direct logo load failed due to CORS. Retrying via proxy: ${proxiedUrl}`);
+      
+      const proxyImg = new Image();
+      proxyImg.crossOrigin = 'anonymous';
+      
+      const proxyTimeout = setTimeout(() => {
+        proxyImg.src = '';
+        reject(new Error('CORS proxy image download timeout.'));
+      }, 5000);
+
+      proxyImg.onload = () => {
+        clearTimeout(proxyTimeout);
+        resolve(proxyImg);
+      };
+      proxyImg.onerror = (err) => {
+        clearTimeout(proxyTimeout);
+        reject(new Error('Both direct and proxied school logo loads failed.'));
+      };
+      proxyImg.src = proxiedUrl;
     };
     img.src = url;
   });
