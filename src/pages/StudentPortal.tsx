@@ -6,14 +6,17 @@ import { Student, SchoolConfig, SemesterSummary, Grade, Subject } from '../types
 import { motion, AnimatePresence } from 'motion/react';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { generateStudentTranscript } from '../lib/pdfGenerator';
+import { useNavigation } from '../context/NavigationContext';
 
 export const StudentPortal: React.FC = () => {
   const [studentId, setStudentId] = useState('');
   const [student, setStudent] = useState<Student | null>(null);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const { config } = useSchoolConfig();
+  const { navigateTo } = useNavigation();
 
   useEffect(() => {
     const fetchSubjects = async () => {
@@ -150,11 +153,32 @@ export const StudentPortal: React.FC = () => {
                   <p className="text-gray-500 dark:text-gray-400 font-bold mt-1 text-sm sm:text-base">Identity Pin: <span className="font-mono text-gray-600 dark:text-gray-200">{student.studentId}</span> • Grade Section {student.grade}{student.section}</p>
                 </div>
                 <button 
-                  onClick={() => config && student && generateStudentTranscript(student, config, subjects)}
-                  className="w-full md:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-indigo-100 dark:shadow-none"
+                  onClick={async () => {
+                    if (config && student && !downloading) {
+                      setDownloading(true);
+                      try {
+                        await generateStudentTranscript(student, config, subjects);
+                      } catch (err) {
+                        console.error('Failed to download transcript:', err);
+                      } finally {
+                        setDownloading(false);
+                      }
+                    }
+                  }}
+                  disabled={downloading}
+                  className="w-full md:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-indigo-100 dark:shadow-none disabled:opacity-75 focus:ring-2 focus:ring-indigo-400 outline-none"
                 >
-                  <Download className="w-5 h-5" />
-                  Download Transcript PDF
+                  {downloading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Generating PDF...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-5 h-5" />
+                      Download Transcript PDF
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -207,6 +231,30 @@ export const StudentPortal: React.FC = () => {
           <div className="flex flex-col items-center gap-4 py-16">
             <Loader2 className="animate-spin w-12 h-12 text-indigo-600" />
             <p className="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-widest text-[10px]">Accessing student ledger...</p>
+          </div>
+        )}
+
+        {!student && !loading && (
+          <div className="mt-12 pt-8 border-t border-gray-100 dark:border-gray-800/60 grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">About Chercher Secondary</h3>
+              <p className="text-xs text-gray-550 dark:text-gray-400 font-medium leading-relaxed">
+                Chercher Secondary School is committed to academic rigor, integrity, and fostering state-of-the-art educational technologies to streamline record preservation and grades retrieval.
+              </p>
+            </div>
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400 mb-2">Technical Authority</h3>
+              <p className="text-xs text-gray-555 dark:text-gray-400 font-medium leading-relaxed">
+                Developed in coordination with our development partner <strong>Ramoda Technologies</strong>. Discover founder credentials and support channels on our{' '}
+                <button
+                  type="button"
+                  onClick={() => navigateTo('developer')}
+                  className="text-indigo-600 hover:text-indigo-750 dark:text-indigo-400 dark:hover:text-indigo-300 font-bold underline outline-none cursor-pointer"
+                >
+                  Developer Information page
+                </button>.
+              </p>
+            </div>
           </div>
         )}
       </motion.div>

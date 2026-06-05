@@ -24,6 +24,7 @@ export const SchoolSettings: React.FC = () => {
       schoolPhone: formData.get('schoolPhone') as string,
       schoolEmail: formData.get('schoolEmail') as string,
       schoolAddress: formData.get('schoolAddress') as string,
+      schoolLogo: formData.get('schoolLogo') as string,
       academicYear: formData.get('academicYear') as string,
       passMark: Number(formData.get('passMark')),
       studentIdPrefix: formData.get('studentIdPrefix') as string,
@@ -88,6 +89,10 @@ export const SchoolSettings: React.FC = () => {
               <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">School Name</label>
                 <input name="schoolName" defaultValue={config?.schoolName} required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">School Logo URL</label>
+                <input name="schoolLogo" defaultValue={config?.schoolLogo} required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600" />
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">School Motto</label>

@@ -23,7 +23,29 @@ const translateStatus = (status: string, avg?: number, passMark: number = 50): s
   return status || 'N/A';
 };
 
-export const generateStudentTranscript = (student: Student, config: SchoolConfig, subjects: Subject[]) => {
+const loadLogoImage = (url: string): Promise<HTMLImageElement> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    const timeout = setTimeout(() => {
+      img.src = '';
+      reject(new Error('School logo URL image download timeout.'));
+    }, 4500);
+
+    img.onload = () => {
+      clearTimeout(timeout);
+      resolve(img);
+    };
+    img.onerror = (err) => {
+      clearTimeout(timeout);
+      reject(new Error('School logo URL image could not be loaded (likely CORS or invalid address).'));
+    };
+    img.src = url;
+  });
+};
+
+export const generateStudentTranscript = async (student: Student, config: SchoolConfig, subjects: Subject[]) => {
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageHeight = doc.internal.pageSize.height;
   const pageWidth = doc.internal.pageSize.width;
@@ -82,8 +104,39 @@ export const generateStudentTranscript = (student: Student, config: SchoolConfig
     doc.text('KNOWLEDGE IS POWER', x, y + 12, { align: 'center' });
   };
 
-  // Draw the official crest at top left
-  drawEmblem(28, 28);
+  // Draw the official crest at top left or embed school logo dynamically
+  let imgLoaded = false;
+  let logoImg: HTMLImageElement | null = null;
+
+  if (config.schoolLogo) {
+    try {
+      logoImg = await loadLogoImage(config.schoolLogo);
+      imgLoaded = true;
+    } catch (e) {
+      console.warn('Failed to load school logo dynamically, falling back to clean vector emblem:', e);
+    }
+  }
+
+  if (imgLoaded && logoImg) {
+    try {
+      // Cleanly determine format matching (default to PNG)
+      let format = 'PNG';
+      if (config.schoolLogo.toLowerCase().includes('.jpg') || config.schoolLogo.toLowerCase().includes('.jpeg')) {
+        format = 'JPEG';
+      } else if (config.schoolLogo.toLowerCase().includes('.svg')) {
+        format = 'SVG';
+      } else if (config.schoolLogo.toLowerCase().includes('.webp')) {
+        format = 'WEBP';
+      }
+      // Embed configured logo nicely aligned to the upper header
+      doc.addImage(logoImg, format, 15, 12, 26, 26);
+    } catch (err) {
+      console.error('Error embedding school logo inside PDF canvas, drawing emblem fallback:', err);
+      drawEmblem(28, 28);
+    }
+  } else {
+    drawEmblem(28, 28);
+  }
 
   // --- SCHOOL IDENTIFICATION DETAILS (Top-Center and Right) ---
   doc.setTextColor(27, 38, 59);

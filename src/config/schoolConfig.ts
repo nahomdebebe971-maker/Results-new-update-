@@ -6,7 +6,7 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   schoolAddress: 'Chercher, Ethiopia',
   schoolPhone: '+251 900 000 000',
   schoolEmail: 'contact@chercher.edu.et',
-  schoolLogo: '',
+  schoolLogo: 'https://i.postimg.cc/htx0HnYp/file-0000000035b871f4b8fa6871e6e3a24a.png',
   academicYear: '2016 E.C',
   passMark: 50,
   contactInfo: '+251 900 000 000',

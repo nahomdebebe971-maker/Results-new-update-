@@ -3,6 +3,7 @@ import { X, Mail, Lock, User, Key, Loader2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { loginWithEmail, registerAdmin } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
+import { useSchoolConfig } from '../hooks/useSchoolConfig';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface LoginModalProps {
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const { loginTeacher, loginAdmin } = useAuth();
+  const { config } = useSchoolConfig();
   const [type, setType] = useState<'ADMIN' | 'TEACHER'>('ADMIN');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -84,11 +86,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
           >
             <div className="p-8">
               <div className="flex justify-between items-center mb-8">
-                <div>
-                  <h2 className="text-2xl font-black text-gray-900 tracking-tight">Staff Login</h2>
-                  <p className="text-gray-500 font-medium">Access your portal securely.</p>
+                <div className="flex items-center gap-3">
+                  {config?.schoolLogo ? (
+                    <img src={config.schoolLogo} alt="Logo" className="h-12 w-12 object-contain rounded-xl" />
+                  ) : (
+                    <div className="h-12 w-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-extrabold text-xl">
+                      C
+                    </div>
+                  )}
+                  <div>
+                    <h2 className="text-2xl font-black text-gray-900 tracking-tight leading-none">Staff Login</h2>
+                    <p className="text-gray-500 font-medium text-xs mt-1">Access your portal securely.</p>
+                  </div>
                 </div>
-                <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0">
                   <X className="w-6 h-6 text-gray-400" />
                 </button>
               </div>
