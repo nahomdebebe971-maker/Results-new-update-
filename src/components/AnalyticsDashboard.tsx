@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Loader2, TrendingUp, Users, Award, Target, BookOpen, 
   Settings, Download, FileSpreadsheet, FileDown, 
-  Filter, ShieldAlert, BadgeInfo, RefreshCw, Layers, Edit3, Save, UserMinus
+  Filter, ShieldAlert, BadgeInfo, RefreshCw, Layers, Edit3, Save, UserMinus,
+  Trash2, Plus, ArrowUp, ArrowDown, ShieldCheck, AlertTriangle, Play
 } from 'lucide-react';
 import { getAnalytics, calculateAndSaveAnalytics } from '../services/analyticsService';
 import { SchoolAnalytics, Student, Mark, Grade, Subject, SchoolConfig } from '../types';
@@ -21,7 +22,7 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
   const [analytics, setAnalytics] = useState<SchoolAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'rankings' | 'subjects' | 'comparatives' | 'decision_dropout'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'config' | 'overview' | 'rankings' | 'subjects' | 'comparatives' | 'decision_dropout'>('config');
 
   // Master definitions for lazy loading dropdowns
   const [masterGrades, setMasterGrades] = useState<Grade[]>([]);
@@ -40,12 +41,13 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
   const [classLoading, setClassLoading] = useState(false);
 
   // Score range customization
-  const [customRanges, setCustomRanges] = useState<{ label: string; min: number; max: number }[]>([
-    { label: '<50', min: 0, max: 49.9 },
-    { label: '50-75', min: 50, max: 74.9 },
-    { label: '75-90', min: 75, max: 89.9 },
-    { label: '90-100', min: 90, max: 100 }
+  const [customRanges, setCustomRanges] = useState<{ id: string; label: string; min: number; max: number }[]>([
+    { id: '1', label: '<50', min: 0, max: 49.9 },
+    { id: '2', label: '50-75', min: 50, max: 74.9 },
+    { id: '3', label: '75-90', min: 75, max: 89.9 },
+    { id: '4', label: '90-100', min: 90, max: 100 }
   ]);
+  const [cachedRanges, setCachedRanges] = useState<{ id: string; label: string; min: number; max: number }[] | null>(null);
   const [isEditingRanges, setIsEditingRanges] = useState(false);
 
   // Subject Average selection dynamic analysis
@@ -78,17 +80,34 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
           setAvgSubject(subjectsList[0].id);
         }
 
-        // Set Ranges based on school config
+        // Check if there is configured score ranges in general school configurations
         if (config?.analyticsRanges && config.analyticsRanges.length > 0) {
-          setCustomRanges(config.analyticsRanges);
+          const mapped = config.analyticsRanges.map((r: any, idx: number) => ({
+            id: r.id || idx.toString(),
+            label: r.label,
+            min: parseFloat(r.min) || 0,
+            max: parseFloat(r.max) || 0
+          }));
+          setCustomRanges(mapped);
         }
 
         const data = await getAnalytics();
         if (data) {
           setAnalytics(data);
+          const loadedRanges = data.data?.scoreRangesUsed || [];
+          if (loadedRanges.length > 0) {
+            const mappedSaved = loadedRanges.map((r: any, idx: number) => ({
+              id: r.id || idx.toString(),
+              label: r.label,
+              min: parseFloat(r.min) || 0,
+              max: parseFloat(r.max) || 0
+            }));
+            setCustomRanges(mappedSaved);
+            setCachedRanges(mappedSaved);
+          }
         } else {
-          // If no precalculated data is found, trigger a quick initial sync!
-          await handleRecalculate(true);
+          setAnalytics(null);
+          setCachedRanges(null);
         }
       } catch (err) {
         console.error(err);
@@ -199,11 +218,28 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
   const handleRecalculate = async (silent = false) => {
     if (!silent) setSyncing(true);
     try {
-      await calculateAndSaveAnalytics();
+      const rangesToSave = customRanges.map(cr => ({
+        label: cr.label,
+        min: cr.min,
+        max: cr.max
+      }));
+
+      await calculateAndSaveAnalytics(rangesToSave);
       const updated = await getAnalytics();
       if (updated) {
         setAnalytics(updated);
-        if (!silent) toast.success('Analytics pipeline successfully synced!');
+        const loadedRanges = updated.data?.scoreRangesUsed || [];
+        if (loadedRanges.length > 0) {
+          const mappedSaved = loadedRanges.map((r: any, idx: number) => ({
+            id: r.id || idx.toString(),
+            label: r.label,
+            min: parseFloat(r.min) || 0,
+            max: parseFloat(r.max) || 0
+          }));
+          setCustomRanges(mappedSaved);
+          setCachedRanges(mappedSaved);
+        }
+        if (!silent) toast.success('Analytics pipeline successfully generated and cached!');
       }
     } catch (err) {
       console.error(err);
@@ -213,19 +249,73 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     }
   };
 
-  // Safe handler to update customizable ranges
-  const handleSaveRanges = async () => {
+  // Safe handler to update customizable ranges locally in state
+  const handleSaveRanges = () => {
     setIsEditingRanges(false);
-    // Let's validate the ranges
     for (let r of customRanges) {
       if (isNaN(r.min) || isNaN(r.max) || r.min < 0 || r.max > 100) {
         toast.error('Ranges must contain valid numbers between 0 and 100.');
         return;
       }
     }
-    toast.success('Ranges updated! Recalculating dashboards...');
-    await handleRecalculate();
+    toast.success('Ranges updated locally! Recalculate analytics to apply.');
   };
+
+  const handleMoveUp = (index: number) => {
+    if (index === 0) return;
+    const updated = [...customRanges];
+    const temp = updated[index];
+    updated[index] = updated[index - 1];
+    updated[index - 1] = temp;
+    setCustomRanges(updated);
+  };
+
+  const handleMoveDown = (index: number) => {
+    if (index === customRanges.length - 1) return;
+    const updated = [...customRanges];
+    const temp = updated[index];
+    updated[index] = updated[index + 1];
+    updated[index + 1] = temp;
+    setCustomRanges(updated);
+  };
+
+  const handleAddRange = () => {
+    let lastMax = 0;
+    if (customRanges.length > 0) {
+      lastMax = customRanges[customRanges.length - 1].max;
+    }
+    const nextMin = Math.min(100, lastMax + 0.1);
+    const nextMax = Math.min(100, nextMin + 15);
+    const newRange = {
+      id: Math.random().toString(),
+      label: `${Math.round(nextMin)}-${Math.round(nextMax)}`,
+      min: parseFloat(nextMin.toFixed(1)),
+      max: parseFloat(nextMax.toFixed(1))
+    };
+    setCustomRanges([...customRanges, newRange]);
+    toast.success('New score range added! Customize thresholds below.');
+  };
+
+  const handleDeleteRange = (id: string) => {
+    setCustomRanges(customRanges.filter(r => r.id !== id));
+    toast.error('Score range removed.');
+  };
+
+  const isOutOfDate = (() => {
+    if (!analytics) return false;
+    if (!cachedRanges) return false;
+    if (customRanges.length !== cachedRanges.length) return true;
+    for (let i = 0; i < customRanges.length; i++) {
+      if (
+        customRanges[i].label !== cachedRanges[i].label ||
+        customRanges[i].min !== cachedRanges[i].min ||
+        customRanges[i].max !== cachedRanges[i].max
+      ) {
+        return true;
+      }
+    }
+    return false;
+  })();
 
   if (loading) {
     return (
@@ -236,25 +326,8 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     );
   }
 
-  // Fallback if Firestore has no loaded records
-  if (!analytics) {
-    return (
-      <div className="bg-white p-12 rounded-3xl border border-gray-105 shadow-sm text-center">
-        <ShieldAlert className="w-16 h-16 text-amber-500 mx-auto mb-4" />
-        <h3 className="text-lg font-black text-gray-900 mb-2">No Aggregate Records Found</h3>
-        <p className="text-gray-500 max-w-sm mx-auto text-sm mb-6">Initialize the analytics system index by clicking the synchronization bypass command below.</p>
-        <button
-          onClick={() => handleRecalculate()}
-          className="bg-indigo-650 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-xl transition-all shadow-md flex items-center gap-2 mx-auto justify-center"
-        >
-          <RefreshCw className="w-5 h-5" /> Assemble Analytics Engine
-        </button>
-      </div>
-    );
-  }
-
-  // Destructure cached indices with fallback safeguards
-  const schoolWideStats = analytics.data?.schoolWideStats || {
+  // Destructure cached indices with fallback safeguards so it doesn't crash on null analytics
+  const schoolWideStats = analytics?.data?.schoolWideStats || {
     totalStudents: 0,
     totalMale: 0,
     totalFemale: 0,
@@ -265,20 +338,20 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     malePassRate: 0,
     femalePassRate: 0
   };
-  const gradeComparison = analytics.data?.gradeComparison || {};
-  const genderPerformance = analytics.data?.genderPerformance || {};
-  const decisionReports = analytics.data?.decisionReports || {
+  const gradeComparison = analytics?.data?.gradeComparison || {};
+  const genderPerformance = analytics?.data?.genderPerformance || {};
+  const decisionReports = analytics?.data?.decisionReports || {
     bestPerformingGrades: [],
     bestPerformingSubjects: [],
     lowestPerformingGrades: [],
     lowestPerformingSubjects: []
   };
-  const dropoutAnalysis = analytics.data?.dropoutAnalysis || {
+  const dropoutAnalysis = analytics?.data?.dropoutAnalysis || {
     schoolTotal: { total: 0, male: 0, female: 0 },
     byGrade: {},
     bySection: {}
   };
-  const allStudentsRankData = analytics.data?.allStudentsRankData || [];
+  const allStudentsRankData = analytics?.data?.allStudentsRankData || [];
 
   // Helpers to fetch unique Grade lists (9, 10, 11, 12 etc.)
   const distinctGradeLevels = Array.from(new Set(masterGrades.map(g => g.name))).sort((a, b) => Number(a) - Number(b));
@@ -544,49 +617,305 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
           </p>
         </div>
 
-        <button 
-          onClick={() => handleRecalculate()}
-          disabled={syncing}
-          className="self-start md:self-auto flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-gray-900 border border-indigo-150 text-indigo-700 dark:text-indigo-400 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Recalculating...' : 'Recalculate & Sync'}
-        </button>
+        {analytics && (
+          <div className="self-start md:self-auto flex items-center gap-2 text-xs font-black text-gray-500 bg-gray-50 px-4 py-2 rounded-2xl border border-gray-150">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+            <span>Last Compiled: {new Date(analytics.updatedAt).toLocaleTimeString()}</span>
+          </div>
+        )}
       </div>
 
       {/* HORIZONTAL SECONDARY INTERNAL RAILS FOR INTENTIONAL ARCHITECTURE */}
       <div className="flex items-center overflow-x-auto gap-2 p-1 bg-gray-100/80 rounded-2xl max-w-full">
         <button 
-          onClick={() => setActiveSubTab('overview')} 
-          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap ${activeSubTab === 'overview' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+          onClick={() => setActiveSubTab('config')} 
+          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${activeSubTab === 'config' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+        >
+          ⚙️ Analytics Configuration & Ranges
+        </button>
+        <button 
+          onClick={() => {
+            if (!analytics) {
+              toast.error('Analytical reports have not been generated yet. Please click "Calculate Analytics" first.');
+              return;
+            }
+            setActiveSubTab('overview');
+          }} 
+          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${!analytics ? 'opacity-40 cursor-not-allowed' : ''} ${activeSubTab === 'overview' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
         >
           1. School Overview
         </button>
         <button 
-          onClick={() => setActiveSubTab('rankings')} 
-          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap ${activeSubTab === 'rankings' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+          onClick={() => {
+            if (!analytics) {
+              toast.error('Analytical reports have not been generated yet.');
+              return;
+            }
+            setActiveSubTab('rankings');
+          }} 
+          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${!analytics ? 'opacity-40 cursor-not-allowed' : ''} ${activeSubTab === 'rankings' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
         >
           2. Academic Rankings (Top 20)
         </button>
         <button 
-          onClick={() => setActiveSubTab('subjects')} 
-          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap ${activeSubTab === 'subjects' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+          onClick={() => {
+            if (!analytics) {
+              toast.error('Analytical reports have not been generated yet.');
+              return;
+            }
+            setActiveSubTab('subjects');
+          }} 
+          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${!analytics ? 'opacity-40 cursor-not-allowed' : ''} ${activeSubTab === 'subjects' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
         >
           3. Subject Matrices (Bilingual)
         </button>
         <button 
-          onClick={() => setActiveSubTab('comparatives')} 
-          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap ${activeSubTab === 'comparatives' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+          onClick={() => {
+            if (!analytics) {
+              toast.error('Analytical reports have not been generated yet.');
+              return;
+            }
+            setActiveSubTab('comparatives');
+          }} 
+          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${!analytics ? 'opacity-40 cursor-not-allowed' : ''} ${activeSubTab === 'comparatives' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-550 hover:text-gray-900'}`}
         >
           4. Comparisons & Gender
         </button>
         <button 
-          onClick={() => setActiveSubTab('decision_dropout')} 
-          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap ${activeSubTab === 'decision_dropout' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+          onClick={() => {
+            if (!analytics) {
+              toast.error('Analytical reports have not been generated yet.');
+              return;
+            }
+            setActiveSubTab('decision_dropout');
+          }} 
+          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${!analytics ? 'opacity-40 cursor-not-allowed' : ''} ${activeSubTab === 'decision_dropout' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-550 hover:text-gray-900'}`}
         >
           5. Decision & Dropouts
         </button>
       </div>
+
+      {/* TAB 0: ANALYTICS CONFIGURATION AND ORCHESTRATION */}
+      {activeSubTab === 'config' && (
+        <div className="space-y-8 animate-fade-in">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            {/* Left/Main Column: Score Range Configuration */}
+            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm lg:col-span-2 flex flex-col justify-between">
+              <div>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-sm font-black text-gray-950 uppercase tracking-wider flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-indigo-600" /> Score Range Configuration
+                  </h3>
+                  {!isEditingRanges ? (
+                    <button 
+                      onClick={() => setIsEditingRanges(true)}
+                      className="text-xs bg-indigo-550 hover:bg-indigo-600 text-white bg-indigo-600 font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 transition-all"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" /> Edit Ranges
+                    </button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={handleAddRange}
+                        className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 transition-all"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add Range
+                      </button>
+                      <button 
+                        onClick={handleSaveRanges}
+                        className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 transition-all"
+                      >
+                        <Save className="w-3.5 h-3.5" /> Save Changes
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  {customRanges.map((range, idx) => (
+                    <div key={range.id || idx} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-4">
+                      <div className="flex-grow grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <span className="text-[9px] uppercase font-black tracking-widest text-gray-400">Range Label</span>
+                          {!isEditingRanges ? (
+                            <p className="font-bold text-gray-800 text-sm mt-0.5">{range.label}</p>
+                          ) : (
+                            <input 
+                              className="bg-white px-2 py-1 border rounded text-xs font-bold w-full block mt-0.5 border-gray-300 focus:outline-indigo-500"
+                              value={range.label} 
+                              onChange={(e) => {
+                                const updated = [...customRanges];
+                                updated[idx].label = e.target.value;
+                                setCustomRanges(updated);
+                              }}
+                            />
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-[9px] uppercase font-black tracking-widest text-gray-400 block sm:text-right">Min Value (%)</span>
+                          {!isEditingRanges ? (
+                            <span className="font-bold text-xs text-indigo-600 block sm:text-right mt-1">{range.min}%</span>
+                          ) : (
+                            <input 
+                              type="number" 
+                              step="0.1"
+                              className="bg-white p-1 border rounded text-xs w-full sm:text-right font-bold mt-0.5 border-gray-300 focus:outline-indigo-500"
+                              value={range.min} 
+                              onChange={(e) => {
+                                const updated = [...customRanges];
+                                updated[idx].min = parseFloat(e.target.value) || 0;
+                                setCustomRanges(updated);
+                              }}
+                            />
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-[9px] uppercase font-black tracking-widest text-gray-400 block sm:text-right">Max Value (%)</span>
+                          {!isEditingRanges ? (
+                            <span className="font-bold text-xs text-gray-650 block sm:text-right mt-1">{range.max}%</span>
+                          ) : (
+                            <input 
+                              type="number" 
+                              step="0.1"
+                              className="bg-white p-1 border rounded text-xs w-full sm:text-right font-bold mt-0.5 border-gray-300 focus:outline-indigo-500"
+                              value={range.max} 
+                              onChange={(e) => {
+                                const updated = [...customRanges];
+                                updated[idx].max = parseFloat(e.target.value) || 0;
+                                setCustomRanges(updated);
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Movement / Operations Drawer */}
+                      {isEditingRanges && (
+                        <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-gray-250">
+                          <button
+                            onClick={() => handleMoveUp(idx)}
+                            disabled={idx === 0}
+                            title="Move Up"
+                            className="p-1 hover:bg-gray-200 text-gray-500 rounded disabled:opacity-30"
+                          >
+                            <ArrowUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleMoveDown(idx)}
+                            disabled={idx === customRanges.length - 1}
+                            title="Move Down"
+                            className="p-1 hover:bg-gray-200 text-gray-500 rounded disabled:opacity-30"
+                          >
+                            <ArrowDown className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRange(range.id)}
+                            title="Delete"
+                            className="p-1 hover:bg-rose-100 text-rose-500 rounded transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {isEditingRanges && (
+                    <button
+                      onClick={handleAddRange}
+                      className="w-full py-3 border-2 border-dashed border-gray-205 hover:border-indigo-400 text-gray-400 hover:text-indigo-600 rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 mt-4"
+                    >
+                      <Plus className="w-4 h-4" /> Add Custom Score Range
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 bg-indigo-50/50 rounded-2xl text-indigo-900 text-xs font-medium leading-relaxed mt-6 flex gap-2 border border-indigo-100">
+                <BadgeInfo className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                <span>Adjust thresholds to align reporting brackets for grade comparisons, bilingual matrices, and academic dashboards across 10,000+ roster sheets. Modifying these ranges will prompt high-fidelity cache recalculation.</span>
+              </div>
+            </div>
+
+            {/* Right Column: Analytics Status and Calculation Launcher */}
+            <div className="space-y-8">
+              
+              {/* Analytics Status Board */}
+              <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between h-full min-h-[380px]">
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-gray-950 uppercase tracking-wider flex items-center gap-2 mb-4">
+                    <ShieldCheck className="w-5 h-5 text-indigo-600" /> Analytics Orchestration
+                  </h3>
+
+                  <div className="space-y-5">
+                    <div>
+                      <span className="text-[10px] uppercase font-black tracking-widest text-gray-400 block mb-1">Status Indicator</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-3 h-3 rounded-full ${analytics ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse inline-block`} />
+                        <h4 className="font-extrabold text-base text-gray-900 leading-none">
+                          {analytics ? 'Generated' : 'Not Generated'}
+                        </h4>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] uppercase font-black tracking-widest text-gray-400 block mb-1">Cache Timestamp</span>
+                      <p className="font-mono text-xs text-gray-700 font-bold bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                        {analytics?.updatedAt ? new Date(analytics.updatedAt).toLocaleString() : 'N/A - System Idle'}
+                      </p>
+                    </div>
+
+                    {isOutOfDate && (
+                      <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-2.5 text-amber-905 text-xs font-bold leading-normal">
+                        <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                        <span>Analytics are out of date. Recalculate analytics to apply the new score ranges.</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-6 border-t border-gray-100">
+                  {!analytics ? (
+                    <button
+                      onClick={() => handleRecalculate()}
+                      disabled={syncing}
+                      className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 uppercase tracking-wider text-xs"
+                    >
+                      {syncing ? <Loader2 className="animate-spin w-4 h-4" /> : <Play className="w-4 h-4 fill-white text-white" />}
+                      {syncing ? 'Generating cached results...' : 'Calculate Analytics'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleRecalculate()}
+                      disabled={syncing}
+                      className={`w-full py-4 font-extrabold rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 uppercase tracking-wider text-xs ${isOutOfDate ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'}`}
+                    >
+                      {syncing ? <Loader2 className="animate-spin w-4 h-4" /> : <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />}
+                      {syncing ? 'Updating cached entries...' : 'Refresh Analytics'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {analytics && !isOutOfDate && (
+            <div className="mt-4 p-8 bg-gradient-to-br from-indigo-50/20 to-emerald-55/20 rounded-3xl border border-indigo-100 flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="space-y-1">
+                <h4 className="font-extrabold text-indigo-950 text-base">Explore Compiled Intelligence Roster</h4>
+                <p className="text-gray-500 text-xs">The analytical reports compiles school-wide rankings, bilingual averages, comparisons, and dropout surveillance maps perfectly aligned with configured ranges.</p>
+              </div>
+              <button
+                onClick={() => setActiveSubTab('overview')}
+                className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md inline-flex items-center gap-2 whitespace-nowrap self-stretch md:self-auto justify-center"
+              >
+                Go to School Overview <TrendingUp className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TAB 1: GENERAL SCHOOL PERFORMANCE CARDS AND SUMMARY */}
       {activeSubTab === 'overview' && (
@@ -632,78 +961,31 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
               <div>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xs font-black text-gray-950 uppercase tracking-widest flex items-center gap-2">
-                    <Settings className="w-4 h-4 text-indigo-600" /> Customizable Score Ranges
+                    <Settings className="w-4 h-4 text-indigo-600" /> Active Range Schema
                   </h3>
-                  {!isEditingRanges ? (
-                    <button 
-                      onClick={() => setIsEditingRanges(true)}
-                      className="text-xs text-indigo-600 hover:underline font-bold flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" /> Edit Ranges
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={handleSaveRanges}
-                      className="text-xs text-emerald-600 hover:underline font-bold flex items-center gap-1"
-                    >
-                      <Save className="w-3.5 h-3.5" /> Apply & Recalculate
-                    </button>
-                  )}
+                  <button 
+                    onClick={() => setActiveSubTab('config')}
+                    className="text-xs text-indigo-600 hover:underline font-bold flex items-center gap-1"
+                  >
+                    Configure Schema ⚙️
+                  </button>
                 </div>
 
                 <div className="space-y-4">
                   {customRanges.map((range, idx) => (
                     <div key={idx} className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-between">
                       <div className="flex-grow">
-                        <span className="text-[10px] uppercase font-black tracking-widest text-gray-400">Range Label</span>
-                        {!isEditingRanges ? (
-                          <p className="font-bold text-gray-800">{range.label}</p>
-                        ) : (
-                          <input 
-                            className="bg-white px-2 py-1 border rounded text-xs font-bold w-24 block mt-1"
-                            value={range.label} 
-                            onChange={(e) => {
-                              const updated = [...customRanges];
-                              updated[idx].label = e.target.value;
-                              setCustomRanges(updated);
-                            }}
-                          />
-                        )}
+                        <span className="text-[9px] uppercase font-black tracking-widest text-gray-400">Range Label</span>
+                        <p className="font-bold text-gray-800 text-xs mt-0.5">{range.label}</p>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-4 text-right">
                         <div>
-                          <span className="text-[9px] uppercase font-black text-gray-400 block text-right">Min (%)</span>
-                          {!isEditingRanges ? (
-                            <span className="font-black text-xs text-indigo-600">{range.min}</span>
-                          ) : (
-                            <input 
-                              type="number" 
-                              className="bg-white p-1 border rounded text-xs w-16 text-right font-bold"
-                              value={range.min} 
-                              onChange={(e) => {
-                                const updated = [...customRanges];
-                                updated[idx].min = parseFloat(e.target.value) || 0;
-                                setCustomRanges(updated);
-                              }}
-                            />
-                          )}
+                          <span className="text-[9px] uppercase font-black text-gray-400 block pb-0.5">Min Cap</span>
+                          <span className="font-black text-xs text-indigo-600">{range.min}%</span>
                         </div>
                         <div>
-                          <span className="text-[9px] uppercase font-black text-gray-400 block text-right">Max (%)</span>
-                          {!isEditingRanges ? (
-                            <span className="font-black text-xs text-gray-650">{range.max}</span>
-                          ) : (
-                            <input 
-                              type="number" 
-                              className="bg-white p-1 border rounded text-xs w-16 text-right font-bold"
-                              value={range.max} 
-                              onChange={(e) => {
-                                const updated = [...customRanges];
-                                updated[idx].max = parseFloat(e.target.value) || 0;
-                                setCustomRanges(updated);
-                              }}
-                            />
-                          )}
+                          <span className="text-[9px] uppercase font-black text-gray-400 block pb-0.5">Max Cap</span>
+                          <span className="font-black text-xs text-gray-650">{range.max}%</span>
                         </div>
                       </div>
                     </div>
@@ -713,7 +995,7 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
               
               <div className="p-3 bg-indigo-50/50 rounded-xl text-indigo-750 text-[11px] font-medium leading-relaxed mt-6 flex gap-2">
                 <BadgeInfo className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
-                <span>Adjust Ranges thresholds and click "Apply". The dashboards, bilingual matrices, and performance summaries across all 10,000+ mock records will rebuild synchronously!</span>
+                <span>Custom score ranges are used globally to evaluate academic rosters, bilingual summaries, and grade comparison matrices. Click "Configure Schema" to customize.</span>
               </div>
             </div>
           </div>
