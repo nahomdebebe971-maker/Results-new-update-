@@ -4,6 +4,7 @@ import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from '
 import { db } from '../lib/firebase';
 import { Subject } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'react-hot-toast';
 
 export const SubjectManagement: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -22,35 +23,51 @@ export const SubjectManagement: React.FC = () => {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name) return;
+    if (!formData.name.trim()) return;
     try {
       await addDoc(collection(db, 'subjects'), {
-        ...formData,
+        name: formData.name.trim(),
         createdAt: new Date().toISOString(),
       });
       setFormData({ name: '' });
       setShowAdd(false);
+      toast.success('Curriculum course added successfully!');
     } catch (err) {
       console.error(err);
+      toast.error('Failed to register course.');
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Delete this subject? This will remove all associated marks.')) {
-      await deleteDoc(doc(db, 'subjects', id));
+    if (window.confirm('Are you sure you want to delete this course? This will purge all associated student scores.')) {
+      try {
+        await deleteDoc(doc(db, 'subjects', id));
+        toast.success('Course expelled from curriculum.');
+      } catch {
+        toast.error('Failed to delete subject.');
+      }
     }
   };
 
+  if (loading) {
+    return (
+      <div className="py-20 flex flex-col items-center justify-center">
+        <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+        <p className="text-gray-400 dark:text-gray-500 font-extrabold uppercase tracking-widest text-xs">Accessing curriculum...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-black text-gray-900 tracking-tight">Subject Management</h2>
-          <p className="text-gray-500 font-medium">Manage school subjects and the core curriculum.</p>
+          <h2 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">Curriculum Course Manager</h2>
+          <p className="text-gray-500 dark:text-gray-400 font-medium">Define instructional domains for assignment matching.</p>
         </div>
         <button 
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:scale-105 transition-transform"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg transition-all active:scale-95"
         >
           <Plus className="w-5 h-5" /> Add New Subject
         </button>
@@ -62,31 +79,31 @@ export const SubjectManagement: React.FC = () => {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="bg-white p-8 rounded-2xl border border-indigo-100 shadow-xl shadow-indigo-50/50"
+            className="bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-3xl border border-indigo-50 dark:border-indigo-950/40 shadow-xl"
           >
             <form onSubmit={handleAdd} className="flex flex-col md:flex-row gap-6">
               <div className="flex-grow space-y-2">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Subject Name</label>
+                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Subject Name</label>
                 <input 
                   required
                   type="text" 
                   value={formData.name}
-                  onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Mathematics"
-                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
+                  onChange={e => setFormData({ name: e.target.value })}
+                  placeholder="e.g. Mathematics"
+                  className="w-full p-4 bg-gray-50 dark:bg-gray-850 border border-gray-150 dark:border-gray-800 text-gray-900 dark:text-white rounded-2xl outline-none focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/40 focus:bg-white dark:focus:bg-gray-900 transition-all font-bold"
                 />
               </div>
               <div className="flex items-end gap-4">
                 <button 
                   type="button"
                   onClick={() => setShowAdd(false)}
-                  className="px-8 py-4 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all"
+                  className="px-8 py-4 bg-gray-100 dark:bg-gray-800 hover:bg-gray-250 text-gray-600 dark:text-gray-300 rounded-2xl font-bold transition-all"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
-                  className="px-8 py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                  className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold shadow-lg shadow-indigo-100 dark:shadow-none transition-all"
                 >
                   Create Subject
                 </button>
@@ -96,29 +113,30 @@ export const SubjectManagement: React.FC = () => {
         )}
       </AnimatePresence>
 
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-        <table className="w-full text-left">
+      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-850/85 rounded-3xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left min-w-[500px] border-collapse">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
-              <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Subject Name</th>
-              <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
+            <tr className="bg-gray-50 dark:bg-gray-850/50 border-b border-gray-100 dark:border-gray-800 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+              <th className="px-8 py-5">Subject Name</th>
+              <th className="px-8 py-5 text-right font-black">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-gray-50 dark:divide-gray-800/50">
             {subjects.map((sub) => (
-              <tr key={sub.id} className="hover:bg-gray-50 transition-colors group">
-                <td className="px-8 py-4">
+              <tr key={sub.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-850/20 transition-colors group">
+                <td className="px-8 py-4.5">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center">
+                    <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
                       <BookOpen className="w-5 h-5" />
                     </div>
-                    <span className="font-bold text-gray-900">{sub.name}</span>
+                    <span className="font-extrabold text-gray-900 dark:text-white">{sub.name}</span>
                   </div>
                 </td>
-                <td className="px-8 py-4 text-right">
+                <td className="px-8 py-4.5 text-right">
                   <button 
                     onClick={() => handleDelete(sub.id)}
-                    className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
+                    className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/45 rounded-xl transition-all"
+                    title="Delete Subject"
                   >
                     <Trash2 className="w-5 h-5" />
                   </button>
@@ -127,7 +145,7 @@ export const SubjectManagement: React.FC = () => {
             ))}
             {subjects.length === 0 && !loading && (
               <tr>
-                <td colSpan={2} className="px-8 py-20 text-center text-gray-400 font-medium">No subjects found.</td>
+                <td colSpan={2} className="px-8 py-16 text-center text-gray-400 dark:text-gray-500 font-bold">No academic curriculum subjects defined.</td>
               </tr>
             )}
           </tbody>

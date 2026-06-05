@@ -102,8 +102,8 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
         let bVal: any;
 
         if (sortConfig.key === 'name') {
-          aVal = a.name.toLowerCase();
-          bVal = b.name.toLowerCase();
+          aVal = a.name.trim().replace(/\s+/g, ' ').toLowerCase();
+          bVal = b.name.trim().replace(/\s+/g, ' ').toLowerCase();
         } else if (sortConfig.key === 'id') {
           aVal = a.studentId.toLowerCase();
           bVal = b.studentId.toLowerCase();
@@ -118,6 +118,13 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
         if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
         return 0;
+      });
+    } else {
+      // Default: Alphabetical sort by Name (A-Z)
+      items.sort((a, b) => {
+        const nameA = a.name.trim().replace(/\s+/g, ' ').toLowerCase();
+        const nameB = b.name.trim().replace(/\s+/g, ' ').toLowerCase();
+        return nameA.localeCompare(nameB);
       });
     }
     return items;

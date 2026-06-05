@@ -35,7 +35,16 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
         where('section', '==', gSec)
       );
       const sSnap = await getDocs(q);
-      setStudents(sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student)));
+      const fetchedStudents = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+      
+      // Sort alphabetically A-Z by full name (ignoring case and extra spaces)
+      fetchedStudents.sort((a, b) => {
+        const nameA = a.name.trim().replace(/\s+/g, ' ').toLowerCase();
+        const nameB = b.name.trim().replace(/\s+/g, ' ').toLowerCase();
+        return nameA.localeCompare(nameB, 'en', { sensitivity: 'base' });
+      });
+
+      setStudents(fetchedStudents);
     } catch (err) {
       console.error(err);
     } finally {
@@ -180,48 +189,327 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
     doc.save(`Roster_${selectedGrade}_Official.pdf`);
   };
 
-  const exportExcel = () => {
-    const data: any[] = [];
-    students.forEach((s, idx) => {
-      // Semester 1 Row
-      const row1: any = {
-        'S/N': idx + 1,
-        'Name': s.name,
-        'Sex': s.sex,
-        'Age': s.age,
-        'Term': '1st',
-      };
-      // Semester 2 Row
-      const row2: any = { 'Term': '2nd' };
-      // Average Row
-      const row3: any = { 'Term': 'Ave' };
+  const exportExcel = async () => {
+    if (!students.length || !config) return;
 
-      subjects.forEach(sub => {
-        const res = s.results?.[sub.name];
-        row1[sub.name] = res?.semester1 || 0;
-        row2[sub.name] = res?.semester2 || 0;
-        row3[sub.name] = res?.average || 0;
-      });
-
-      row1['Total'] = s.semester1?.total || 0;
-      row1['Average'] = s.semester1?.average.toFixed(1) || 0;
-      row1['Rank'] = s.semester1?.rank || 0;
-
-      row2['Total'] = s.semester2?.total || 0;
-      row2['Average'] = s.semester2?.average.toFixed(1) || 0;
-      row2['Rank'] = s.semester2?.rank || 0;
-
-      row3['Total'] = s.final?.total || 0;
-      row3['Average'] = s.final?.average.toFixed(1) || 0;
-      row3['Rank'] = s.final?.rank || 0;
-
-      data.push(row1, row2, row3);
+    const ExcelJS = await import('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Official Roster', {
+      pageSetup: {
+        orientation: 'landscape',
+        paperSize: 9, // A4
+        margins: { left: 0.25, right: 0.25, top: 0.3, bottom: 0.3, header: 0.15, footer: 0.15 },
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0
+      }
     });
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Roster');
-    XLSX.writeFile(wb, `Roster_${selectedGrade}.xlsx`);
+    worksheet.views = [{ showGridLines: true }];
+
+    const hTeacher = grades.find(g => `${g.name}${g.section}` === selectedGrade)?.homeroomTeacher || 'N/A';
+    const totalColumns = 11 + subjects.length;
+    const summaryStartCol = 6 + subjects.length;
+
+    const formatRange = (
+      ws: any,
+      startRow: number,
+      startCol: number,
+      endRow: number,
+      endCol: number,
+      style: {
+        font?: any;
+        alignment?: any;
+        fill?: any;
+        border?: boolean;
+      }
+    ) => {
+      for (let rIdx = startRow; rIdx <= endRow; rIdx++) {
+        const row = ws.getRow(rIdx);
+        for (let cIdx = startCol; cIdx <= endCol; cIdx++) {
+          const cell = row.getCell(cIdx);
+          if (style.font) cell.font = style.font;
+          if (style.alignment) cell.alignment = style.alignment;
+          if (style.fill) cell.fill = style.fill;
+          if (style.border !== false) {
+            cell.border = {
+              top: { style: 'thin', color: { argb: 'FF000000' } },
+              left: { style: 'thin', color: { argb: 'FF000000' } },
+              bottom: { style: 'thin', color: { argb: 'FF000000' } },
+              right: { style: 'thin', color: { argb: 'FF000000' } }
+            };
+          }
+        }
+      }
+    };
+
+    const colConfigs: any[] = [
+      { key: 'sn', width: 6 },
+      { key: 'name', width: 26 },
+      { key: 'sex', width: 6 },
+      { key: 'age', width: 6 },
+      { key: 'term', width: 8 }
+    ];
+    subjects.forEach(() => {
+      colConfigs.push({ width: 9 });
+    });
+    colConfigs.push(
+      { key: 'tot', width: 10 },
+      { key: 'avg', width: 10 },
+      { key: 'rnk', width: 8 },
+      { key: 'sts', width: 11 },
+      { key: 'cnd', width: 8 },
+      { key: 'rmk', width: 15 }
+    );
+    worksheet.columns = colConfigs;
+
+    const studentsPerPage = 6;
+    const totalPages = Math.ceil(students.length / studentsPerPage);
+
+    for (let pIdx = 0; pIdx < totalPages; pIdx++) {
+      const startIdx = pIdx * studentsPerPage;
+      const r = pIdx * 28 + 1;
+
+      worksheet.mergeCells(r, 1, r, totalColumns);
+      const titleCell = worksheet.getCell(r, 1);
+      titleCell.value = config.schoolName.toUpperCase();
+      worksheet.getRow(r).height = 28;
+      formatRange(worksheet, r, 1, r, totalColumns, {
+        font: { name: 'Arial', size: 16, bold: true },
+        alignment: { horizontal: 'center', vertical: 'middle' },
+        border: false
+      });
+
+      worksheet.mergeCells(r + 1, 1, r + 1, totalColumns);
+      const mottoCell = worksheet.getCell(r + 1, 1);
+      mottoCell.value = (config.schoolMotto || 'Official Student Progress Report').toUpperCase();
+      worksheet.getRow(r + 1).height = 18;
+      formatRange(worksheet, r + 1, 1, r + 1, totalColumns, {
+        font: { name: 'Arial', size: 9, italic: true, bold: true },
+        alignment: { horizontal: 'center', vertical: 'middle' },
+        border: false
+      });
+
+      worksheet.mergeCells(r + 2, 1, r + 2, 4);
+      worksheet.getCell(r + 2, 1).value = `Kutaa (Grade): ${selectedGrade}`;
+
+      worksheet.mergeCells(r + 2, 5, r + 2, summaryStartCol - 1);
+      worksheet.getCell(r + 2, 5).value = `Bara Barnoota (Academic Year): ${config.academicYear}`;
+
+      worksheet.mergeCells(r + 2, summaryStartCol, r + 2, totalColumns);
+      worksheet.getCell(r + 2, summaryStartCol).value = `Homeroom Teacher: ${hTeacher}`;
+
+      worksheet.getRow(r + 2).height = 20;
+      formatRange(worksheet, r + 2, 1, r + 2, totalColumns, {
+        font: { name: 'Arial', size: 9, bold: true },
+        alignment: { horizontal: 'center', vertical: 'middle' },
+        border: false
+      });
+
+      worksheet.getRow(r + 3).height = 8;
+
+      worksheet.mergeCells(r + 4, 1, r + 5, 1);
+      worksheet.getCell(r + 4, 1).value = 'T/L\n(S/N)';
+
+      worksheet.mergeCells(r + 4, 2, r + 5, 2);
+      worksheet.getCell(r + 4, 2).value = 'Maqaa Guutuu\n(Full Name)';
+
+      worksheet.mergeCells(r + 4, 3, r + 5, 3);
+      worksheet.getCell(r + 4, 3).value = 'Saala\n(Sex)';
+
+      worksheet.mergeCells(r + 4, 4, r + 5, 4);
+      worksheet.getCell(r + 4, 4).value = 'Umrii\n(Age)';
+
+      worksheet.mergeCells(r + 4, 5, r + 5, 5);
+      worksheet.getCell(r + 4, 5).value = 'Seem\n(Term)';
+
+      worksheet.mergeCells(r + 4, 6, r + 4, 5 + subjects.length);
+      worksheet.getCell(r + 4, 6).value = 'Gosa Barnoota (Subject Courses)';
+
+      worksheet.mergeCells(r + 4, summaryStartCol, r + 4, totalColumns);
+      worksheet.getCell(r + 4, summaryStartCol).value = 'Academic Results Summary';
+
+      subjects.forEach((sub, subIdx) => {
+        worksheet.getCell(r + 5, 6 + subIdx).value = sub.name.toUpperCase();
+      });
+
+      worksheet.getCell(r + 5, summaryStartCol).value = 'Ida\'ama\n(Total)';
+      worksheet.getCell(r + 5, summaryStartCol + 1).value = 'Averejii\n(Average)';
+      worksheet.getCell(r + 5, summaryStartCol + 2).value = 'Sad.\n(Rank)';
+      worksheet.getCell(r + 5, summaryStartCol + 3).value = 'G/Hafte\n(Status)';
+      worksheet.getCell(r + 5, summaryStartCol + 4).value = 'Amala\n(Conduct)';
+      worksheet.getCell(r + 5, summaryStartCol + 5).value = 'Yaada\n(Remarks)';
+
+      worksheet.getRow(r + 4).height = 24;
+      worksheet.getRow(r + 5).height = 24;
+
+      formatRange(worksheet, r + 4, 1, r + 5, totalColumns, {
+        font: { name: 'Arial', size: 9, bold: true },
+        alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF2FE' } }
+      });
+
+      for (let sIdx = 0; sIdx < studentsPerPage; sIdx++) {
+        const studentIdx = startIdx + sIdx;
+        const s = students[studentIdx];
+        const sr = r + 6 + sIdx * 3;
+
+        worksheet.getRow(sr).height = 19;
+        worksheet.getRow(sr + 1).height = 19;
+        worksheet.getRow(sr + 2).height = 19;
+
+        worksheet.mergeCells(sr, 1, sr + 2, 1);
+        worksheet.mergeCells(sr, 2, sr + 2, 2);
+        worksheet.mergeCells(sr, 3, sr + 2, 3);
+        worksheet.mergeCells(sr, 4, sr + 2, 4);
+        worksheet.mergeCells(sr, summaryStartCol + 4, sr + 2, summaryStartCol + 4);
+        worksheet.mergeCells(sr, summaryStartCol + 5, sr + 2, summaryStartCol + 5);
+
+        worksheet.getCell(sr, 5).value = '1ffaa';
+        worksheet.getCell(sr + 1, 5).value = '2ffaa';
+        worksheet.getCell(sr + 2, 5).value = 'Ave';
+
+        formatRange(worksheet, sr, 1, sr + 2, totalColumns, {
+          font: { name: 'Arial', size: 9 },
+          alignment: { horizontal: 'center', vertical: 'middle' }
+        });
+
+        formatRange(worksheet, sr + 2, 5, sr + 2, totalColumns - 2, {
+          font: { name: 'Arial', size: 9, bold: true },
+          fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
+        });
+
+        if (s) {
+          worksheet.getCell(sr, 1).value = studentIdx + 1;
+          worksheet.getCell(sr, 1).font = { name: 'Arial', size: 9, bold: true };
+
+          worksheet.getCell(sr, 2).value = s.name;
+          worksheet.getCell(sr, 2).font = { name: 'Arial', size: 10, bold: true };
+          worksheet.getCell(sr, 2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+          worksheet.getCell(sr, 3).value = s.sex;
+          worksheet.getCell(sr, 4).value = s.age;
+
+          subjects.forEach((sub, subIdx) => {
+            const res = s.results?.[sub.id] || s.results?.[sub.name];
+            worksheet.getCell(sr, 6 + subIdx).value = res?.semester1 ?? 0;
+            worksheet.getCell(sr + 1, 6 + subIdx).value = res?.semester2 ?? 0;
+            worksheet.getCell(sr + 2, 6 + subIdx).value = Number(res?.average?.toFixed(1) || 0);
+          });
+
+          worksheet.getCell(sr, summaryStartCol).value = s.semester1?.total ?? 0;
+          worksheet.getCell(sr + 1, summaryStartCol).value = s.semester2?.total ?? 0;
+          worksheet.getCell(sr + 2, summaryStartCol).value = s.final?.total ?? 0;
+          worksheet.getCell(sr + 2, summaryStartCol).font = { name: 'Arial', size: 9, bold: true };
+
+          worksheet.getCell(sr, summaryStartCol + 1).value = Number(s.semester1?.average?.toFixed(1) || 0);
+          worksheet.getCell(sr + 1, summaryStartCol + 1).value = Number(s.semester2?.average?.toFixed(1) || 0);
+          worksheet.getCell(sr + 2, summaryStartCol + 1).value = Number(s.final?.average?.toFixed(1) || 0);
+          worksheet.getCell(sr + 2, summaryStartCol + 1).font = { name: 'Arial', size: 9, bold: true };
+
+          worksheet.getCell(sr, summaryStartCol + 2).value = s.semester1?.rank ?? '-';
+          worksheet.getCell(sr + 1, summaryStartCol + 2).value = s.semester2?.rank ?? '-';
+          worksheet.getCell(sr + 2, summaryStartCol + 2).value = s.final?.rank ?? '-';
+          worksheet.getCell(sr + 2, summaryStartCol + 2).font = { name: 'Arial', size: 9, bold: true };
+
+          worksheet.getCell(sr, summaryStartCol + 3).value = s.semester1?.status || 'Pass';
+          worksheet.getCell(sr + 1, summaryStartCol + 3).value = s.semester2?.status || 'Pass';
+          worksheet.getCell(sr + 2, summaryStartCol + 3).value = s.final?.status || 'Pass';
+          worksheet.getCell(sr + 2, summaryStartCol + 3).font = { name: 'Arial', size: 9, bold: true };
+          
+          worksheet.getCell(sr, summaryStartCol + 4).value = '';
+          worksheet.getCell(sr, summaryStartCol + 5).value = '';
+        } else {
+          worksheet.getCell(sr, 1).value = '';
+          worksheet.getCell(sr, 2).value = '';
+          worksheet.getCell(sr, 3).value = '';
+          worksheet.getCell(sr, 4).value = '';
+          
+          subjects.forEach((_, subIdx) => {
+            worksheet.getCell(sr, 6 + subIdx).value = '';
+            worksheet.getCell(sr + 1, 6 + subIdx).value = '';
+            worksheet.getCell(sr + 2, 6 + subIdx).value = '';
+          });
+
+          worksheet.getCell(sr, summaryStartCol).value = '';
+          worksheet.getCell(sr + 1, summaryStartCol).value = '';
+          worksheet.getCell(sr + 2, summaryStartCol).value = '';
+
+          worksheet.getCell(sr, summaryStartCol + 1).value = '';
+          worksheet.getCell(sr + 1, summaryStartCol + 1).value = '';
+          worksheet.getCell(sr + 2, summaryStartCol + 1).value = '';
+
+          worksheet.getCell(sr, summaryStartCol + 2).value = '';
+          worksheet.getCell(sr + 1, summaryStartCol + 2).value = '';
+          worksheet.getCell(sr + 2, summaryStartCol + 2).value = '';
+
+          worksheet.getCell(sr, summaryStartCol + 3).value = '';
+          worksheet.getCell(sr + 1, summaryStartCol + 3).value = '';
+          worksheet.getCell(sr + 2, summaryStartCol + 3).value = '';
+
+          worksheet.getCell(sr, summaryStartCol + 4).value = '';
+          worksheet.getCell(sr, summaryStartCol + 5).value = '';
+        }
+      }
+
+      const footerTables = config.rosterFooterTables || [
+        { title: 'Registered Students', fields: ['Male', 'Female', 'Total'] },
+        { title: 'Passed Students', fields: ['Male', 'Female', 'Total'] },
+        { title: 'Failed Students', fields: ['Male', 'Female', 'Total'] }
+      ];
+
+      worksheet.getRow(r + 24).height = 18;
+      worksheet.getRow(r + 25).height = 18;
+      worksheet.getRow(r + 26).height = 20;
+
+      let startCol = 2;
+      footerTables.forEach((ft) => {
+        const colCount = ft.fields.length;
+
+        worksheet.mergeCells(r + 24, startCol, r + 24, startCol + colCount - 1);
+        worksheet.getCell(r + 24, startCol).value = ft.title;
+
+        formatRange(worksheet, r + 24, startCol, r + 24, startCol + colCount - 1, {
+          font: { name: 'Arial', size: 9, bold: true },
+          alignment: { horizontal: 'center', vertical: 'middle' },
+          fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
+        });
+
+        ft.fields.forEach((f, fidx) => {
+          const fieldCol = startCol + fidx;
+
+          const fCell = worksheet.getCell(r + 25, fieldCol);
+          fCell.value = f;
+
+          const bCell = worksheet.getCell(r + 26, fieldCol);
+          bCell.value = '';
+
+          formatRange(worksheet, r + 25, fieldCol, r + 26, fieldCol, {
+            font: { name: 'Arial', size: 8, bold: true },
+            alignment: { horizontal: 'center', vertical: 'middle' }
+          });
+
+          fCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+        });
+
+        startCol += colCount + 2;
+      });
+
+      if (pIdx < totalPages - 1) {
+        worksheet.getRow(r + 27).pageBreak = true;
+      }
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Roster_${selectedGrade}_Official_Roster.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
   };
 
   return (

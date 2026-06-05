@@ -157,7 +157,8 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
               <div className="h-80 w-full overflow-x-auto">
                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={Object.entries(subjectStats).map(([subId, stat]: any) => ({
-                      name: subId.slice(0, 8),
+                      name: (subjects.find(s => s.id === subId || s.name === subId)?.name || subId).slice(0, 10),
+                      fullName: subjects.find(s => s.id === subId || s.name === subId)?.name || subId,
                       average: stat.totalAvg,
                       passRate: stat.passRate
                     }))}>
@@ -168,7 +169,7 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
                         if (active && payload?.[0]) {
                           return (
                             <div className="bg-white p-4 rounded-xl shadow-xl border border-gray-100">
-                              <p className="text-xs font-black text-gray-900 mb-2 uppercase tracking-widest">{payload[0].payload.name}</p>
+                              <p className="text-xs font-black text-gray-900 mb-2 uppercase tracking-widest">{payload[0].payload.fullName}</p>
                               <p className="text-lg font-black text-indigo-600">{payload[0].value.toFixed(1)}% Avg</p>
                               <p className="text-xs font-bold text-emerald-500">{payload[0].payload.passRate.toFixed(1)}% Pass Rate</p>
                             </div>

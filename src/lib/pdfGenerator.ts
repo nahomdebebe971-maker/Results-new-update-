@@ -1,8 +1,8 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Student, SchoolConfig } from '../types';
+import { Student, SchoolConfig, Subject } from '../types';
 
-export const generateStudentTranscript = (student: Student, config: SchoolConfig) => {
+export const generateStudentTranscript = (student: Student, config: SchoolConfig, subjects: Subject[]) => {
   const doc = new jsPDF();
   const primaryColor = [31, 41, 55]; // Gray-800 for professional look
   const accentColor = [79, 70, 229]; // Indigo-600
@@ -64,13 +64,16 @@ export const generateStudentTranscript = (student: Student, config: SchoolConfig
   doc.text(student.age.toString(), 140, studentInfoY + 16);
 
   // Performance Table
-  const tableData = Object.entries(student.results || {}).map(([sub, res]) => [
-    sub,
-    res.semester1.toString(),
-    res.semester2.toString(),
-    res.average.toFixed(1),
-    res.average >= config.passMark ? 'PASS' : 'FAIL'
-  ]);
+  const tableData = Object.entries(student.results || {}).map(([subId, res]) => {
+    const subjectName = subjects?.find(s => s.id === subId || s.name === subId)?.name || subId;
+    return [
+      subjectName,
+      res.semester1.toString(),
+      res.semester2.toString(),
+      res.average.toFixed(1),
+      res.average >= config.passMark ? 'PASS' : 'FAIL'
+    ];
+  });
 
   autoTable(doc, {
     startY: studentInfoY + 25,

@@ -4,7 +4,7 @@ import {
   FileDown, Search, Filter, X, CheckCircle2, AlertCircle 
 } from 'lucide-react';
 import { 
-  collection, addDoc, deleteDoc, doc, onSnapshot, 
+  collection, addDoc, deleteDoc, doc, getDoc, onSnapshot, 
   query, orderBy, setDoc, getDocs, writeBatch 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -78,14 +78,27 @@ export const StudentManagement: React.FC = () => {
     }
   };
 
-  const generateId = (existingIds: string[]) => {
+  const generateId = async (existingIds: string[]) => {
     let id = '';
     let isUnique = false;
-    while (!isUnique) {
+    let attempts = 0;
+    while (!isUnique && attempts < 10) {
+      attempts++;
       const digits = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
       id = `ST${digits}`;
+      // Local uniqueness check
       if (!existingIds.includes(id)) {
-        isUnique = true;
+        // Direct database document availability verification
+        try {
+          const docRef = doc(db, 'students', id);
+          const snap = await getDoc(docRef);
+          if (!snap.exists()) {
+            isUnique = true;
+          }
+        } catch {
+          // If query fails, assume unique if it passed local check
+          isUnique = true;
+        }
       }
     }
     return id;
@@ -206,8 +219,8 @@ export const StudentManagement: React.FC = () => {
         const batch = writeBatch(db);
         const chunk = validRows.slice(i, i + batchSize);
         
-        chunk.forEach(p => {
-          const studentId = generateId(existingIds);
+        for (const p of chunk) {
+          const studentId = await generateId(existingIds);
           existingIds.push(studentId);
           batch.set(doc(db, 'students', studentId), {
             name: p.name,
@@ -219,7 +232,7 @@ export const StudentManagement: React.FC = () => {
             createdAt: new Date().toISOString(),
           });
           successCount++;
-        });
+        }
 
         await batch.commit();
       }
@@ -238,14 +251,18 @@ export const StudentManagement: React.FC = () => {
   const filteredStudents = students.filter(s => 
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     s.studentId.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  ).sort((a, b) => {
+    const nameA = a.name.trim().replace(/\s+/g, ' ').toLowerCase();
+    const nameB = b.name.trim().replace(/\s+/g, ' ').toLowerCase();
+    return nameA.localeCompare(nameB, 'en', { sensitivity: 'base' });
+  });
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.grade) return;
     
     const existingIds = students.map(s => s.studentId);
-    const studentId = generateId(existingIds);
+    const studentId = await generateId(existingIds);
     try {
       await setDoc(doc(db, 'students', studentId), {
         ...formData,

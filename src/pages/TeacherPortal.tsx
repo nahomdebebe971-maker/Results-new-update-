@@ -35,8 +35,14 @@ export const TeacherPortal: React.FC = () => {
     const fetchAssignments = async () => {
       setFetching(true);
       try {
+        console.log("Logged In Teacher ID:", teacherId);
         const qA = query(collection(db, 'assignments'), where('teacherId', '==', teacherId));
         const aSnap = await getDocs(qA);
+        console.log("Assignments Found:", aSnap.size);
+        console.log("Assignment Teacher IDs:");
+        aSnap.docs.forEach(doc => {
+          console.log(doc.data().teacherId);
+        });
         setAssignments(aSnap.docs.map(d => ({ id: d.id, ...d.data() } as SubjectAssignment)));
       } catch (err) {
         console.error(err);
@@ -69,6 +75,11 @@ export const TeacherPortal: React.FC = () => {
         );
         const sSnap = await getDocs(q2);
         const studentList = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+        studentList.sort((a, b) => {
+          const nameA = a.name.trim().replace(/\s+/g, ' ').toLowerCase();
+          const nameB = b.name.trim().replace(/\s+/g, ' ').toLowerCase();
+          return nameA.localeCompare(nameB, 'en', { sensitivity: 'base' });
+        });
         setStudents(studentList);
 
         // Fetch existing marks for THIS subject and THIS grade/section
@@ -159,15 +170,15 @@ export const TeacherPortal: React.FC = () => {
 
   if (fetching) {
     return (
-      <div className="flex-grow flex flex-col items-center justify-center py-20">
+      <div className="flex-grow flex flex-col items-center justify-center py-20 bg-gray-50 dark:bg-gray-950 transition-colors">
         <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
-        <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Loading assignments...</p>
+        <p className="text-gray-400 dark:text-gray-500 font-bold uppercase tracking-widest text-xs">Loading assignments...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex-grow p-4 md:p-8 max-w-7xl mx-auto w-full">
+    <div className="flex-grow p-4 md:p-8 max-w-7xl mx-auto w-full min-h-[calc(100vh-64px)] bg-gray-50 dark:bg-gray-950 transition-colors">
       <AnimatePresence mode="wait">
         {step === 1 && (
           <motion.div
@@ -178,44 +189,44 @@ export const TeacherPortal: React.FC = () => {
             className="space-y-12"
           >
             <div className="text-center max-w-2xl mx-auto">
-              <div className="inline-flex p-4 bg-indigo-50 text-indigo-600 rounded-2xl mb-6">
+              <div className="inline-flex p-4 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-3xl mb-6">
                 <LayoutGrid className="w-8 h-8" />
               </div>
-              <h1 className="text-4xl font-black text-gray-900 tracking-tight leading-none mb-4">Teaching Assignments</h1>
-              <p className="text-gray-500 font-medium text-lg">Select a class section to start recording or updating student marks.</p>
+              <h1 className="text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight leading-none mb-4">Teaching Assignments</h1>
+              <p className="text-gray-500 dark:text-gray-400 font-medium text-base sm:text-lg">Select a class section to start recording or updating student marks.</p>
             </div>
 
             {assignments.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
                 {assignments.map((as) => (
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     key={as.id}
                     onClick={() => handleSelectAssignment(as)}
-                    className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm hover:shadow-xl hover:border-indigo-100 transition-all text-left flex flex-col group relative overflow-hidden"
+                    className="bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-xl dark:hover:shadow-indigo-900/10 hover:border-indigo-100 dark:hover:border-indigo-900/40 transition-all text-left flex flex-col group relative overflow-hidden"
                   >
-                    <div className="flex justify-between items-start mb-6">
-                      <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                    <div className="flex justify-between items-start mb-6 w-full">
+                      <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center group-hover:bg-indigo-600 dark:group-hover:bg-indigo-500 group-hover:text-white dark:group-hover:text-white transition-colors">
                         <BookOpen className="w-7 h-7" />
                       </div>
-                      <div className="bg-gray-50 px-4 py-1.5 rounded-full text-xs font-black text-gray-400 uppercase tracking-widest border border-gray-100">
+                      <div className="bg-gray-50 dark:bg-gray-850 px-4 py-1.5 rounded-full text-xs font-black text-gray-400 dark:text-gray-550 uppercase tracking-widest border border-gray-100 dark:border-gray-800">
                         Section {as.section}
                       </div>
                     </div>
                     
-                    <h3 className="text-2xl font-black text-gray-900 leading-tight mb-1">{as.subjectName}</h3>
-                    <p className="text-gray-500 font-bold">Grade {as.gradeName}{as.section}</p>
+                    <h3 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight mb-1">{as.subjectName}</h3>
+                    <p className="text-gray-500 dark:text-gray-400 font-bold">Grade {as.gradeName}{as.section}</p>
 
-                    <div className="mt-8 pt-6 border-t border-gray-50 flex items-center justify-between">
-                      <span className="text-indigo-600 font-black text-sm flex items-center gap-2">
+                    <div className="mt-8 pt-6 border-t border-gray-50 dark:border-gray-850 flex items-center justify-between w-full">
+                      <span className="text-indigo-600 dark:text-indigo-400 font-black text-sm flex items-center gap-2">
                         Enter Marks <ArrowRight className="w-4 h-4" />
                       </span>
-                      <Users className="w-5 h-5 text-gray-200" />
+                      <Users className="w-5 h-5 text-gray-255 dark:text-gray-750" />
                     </div>
 
                     {/* Gradient hint */}
-                    <div className="absolute -right-12 -bottom-12 w-32 h-32 bg-indigo-50/50 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div className="absolute -right-12 -bottom-12 w-32 h-32 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
                   </motion.button>
                 ))}
               </div>
@@ -232,20 +243,20 @@ export const TeacherPortal: React.FC = () => {
         {step === 2 && selectedAssignment && (
           <motion.div
             key="step2"
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="max-w-xl mx-auto"
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="max-w-xl mx-auto w-full px-2"
           >
-            <div className="bg-white p-10 rounded-[40px] border border-gray-100 shadow-2xl shadow-indigo-100/50 space-y-8">
+            <div className="bg-white dark:bg-gray-900 p-6 sm:p-10 rounded-[32px] sm:rounded-[40px] border border-gray-100 dark:border-gray-800 shadow-2xl dark:shadow-none space-y-8">
               <div className="text-center">
-                <div className="inline-flex p-5 bg-orange-50 text-orange-600 rounded-3xl mb-6">
+                <div className="inline-flex p-5 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 rounded-3xl mb-6">
                   <Key className="w-10 h-10" />
                 </div>
-                <h2 className="text-3xl font-black text-gray-900 tracking-tight mb-2">Access Restricted</h2>
-                <p className="text-gray-500 font-medium font-sans">
+                <h2 className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white tracking-tight mb-2">Access Restricted</h2>
+                <p className="text-gray-500 dark:text-gray-400 font-medium font-sans text-sm sm:text-base">
                   Enter the administrative passkey for <br />
-                  <span className="text-indigo-600 font-black">{selectedAssignment.subjectName} ({selectedAssignment.gradeName}{selectedAssignment.section})</span>
+                  <span className="text-indigo-600 dark:text-indigo-400 font-black">{selectedAssignment.subjectName} ({selectedAssignment.gradeName}{selectedAssignment.section})</span>
                 </p>
               </div>
 
@@ -253,7 +264,7 @@ export const TeacherPortal: React.FC = () => {
                 <motion.div 
                   initial={{ opacity: 0, x: -10 }} 
                   animate={{ opacity: 1, x: 0 }}
-                  className="p-4 bg-red-50 text-red-600 text-sm font-bold rounded-2xl border border-red-100 flex items-center gap-3"
+                  className="p-4 bg-red-50 dark:bg-red-950/30 text-red-650 dark:text-red-400 text-sm font-bold rounded-2xl border border-red-105 dark:border-red-900/30 flex items-center gap-3"
                 >
                   <AlertTriangle className="w-5 h-5 shrink-0" />
                   {error}
@@ -261,11 +272,11 @@ export const TeacherPortal: React.FC = () => {
               )}
 
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Class Passkey</label>
+                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Class Passkey</label>
                 <input 
                   type="password"
                   autoFocus
-                  className="w-full p-5 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-100 focus:bg-white transition-all text-xl font-mono text-center tracking-widest placeholder:tracking-normal placeholder:font-sans"
+                  className="w-full p-4 sm:p-5 bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white rounded-2xl outline-none focus:ring-4 focus:ring-indigo-100 focus:bg-white dark:focus:bg-gray-900 transition-all text-xl font-mono text-center tracking-widest placeholder:tracking-normal placeholder:font-sans"
                   placeholder="••••••••"
                   value={passkeyInput}
                   onChange={(e) => {
@@ -276,17 +287,17 @@ export const TeacherPortal: React.FC = () => {
                 />
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex flex-col sm:flex-row gap-4 pt-4">
                 <button
                   onClick={() => setStep(1)}
-                  className="w-24 py-5 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all"
+                  className="w-full sm:w-24 py-4 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-2xl font-bold transition-all order-2 sm:order-1"
                 >
                   Cancel
                 </button>
                 <button
                   disabled={!passkeyInput || loading}
                   onClick={handleVerify}
-                  className="flex-grow py-5 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-100 hover:bg-indigo-700 hover:translate-y-[-2px] transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+                  className="w-full sm:flex-grow py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-3 order-1 sm:order-2"
                 >
                   {loading ? <Loader2 className="animate-spin w-5 h-5" /> : 'Confirm Access'}
                 </button>
@@ -300,35 +311,35 @@ export const TeacherPortal: React.FC = () => {
             key="step3"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="space-y-8"
+            className="space-y-8 animate-fade-in"
           >
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white p-8 rounded-[32px] border border-gray-100 shadow-sm relative overflow-hidden">
-              <div className="relative z-10">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-[32px] border border-gray-100 dark:border-gray-800 shadow-sm relative overflow-hidden">
+              <div className="relative z-10 w-full lg:w-auto">
                 <button 
                   onClick={() => setStep(1)}
-                  className="flex items-center gap-2 text-indigo-600 font-black text-xs uppercase tracking-widest mb-3 hover:translate-x-1 transition-transform"
+                  className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-black text-xs uppercase tracking-widest mb-3 hover:translate-x-1 transition-transform"
                 >
                   <ChevronLeft className="w-4 h-4" /> Switch Assignment
                 </button>
-                <h2 className="text-4xl font-black text-gray-900 tracking-tight leading-none mb-1">
+                <h2 className="text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight leading-none mb-1">
                   {selectedAssignment.subjectName}
                 </h2>
-                <div className="flex items-center gap-2 text-gray-500 font-bold">
-                   <div className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-xs">Grade {selectedAssignment.gradeName}{selectedAssignment.section}</div>
-                   <span>•</span>
+                <div className="flex flex-wrap items-center gap-2 text-gray-500 dark:text-gray-400 font-bold">
+                   <div className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs">Grade {selectedAssignment.gradeName}{selectedAssignment.section}</div>
+                   <span className="hidden sm:inline">•</span>
                    <span className="text-sm">Classroom Records Entry</span>
                 </div>
               </div>
               
-              <div className="flex items-center gap-4 relative z-10">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 relative z-10 w-full lg:w-auto">
                 <AnimatePresence>
                   {saveSuccess && (
-                    <motion.div 
+                     <motion.div 
                       key="success"
-                      initial={{ opacity: 0, scale: 0.9 }}
+                      initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      className="bg-green-50 text-green-700 px-6 py-3 rounded-2xl text-sm font-bold border border-green-100 flex items-center gap-2 shadow-sm"
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 px-6 py-3 rounded-2xl text-sm font-bold border border-green-100 dark:border-green-900/30 flex items-center justify-center gap-2 shadow-sm"
                     >
                       <CheckCircle2 className="w-5 h-5" /> Saved & Processed
                     </motion.div>
@@ -337,7 +348,7 @@ export const TeacherPortal: React.FC = () => {
                 <button 
                   onClick={saveMarks}
                   disabled={saving}
-                  className="bg-gray-900 text-white px-8 py-4 rounded-2xl text-base font-black shadow-xl shadow-gray-200 flex items-center gap-3 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+                  className="bg-gray-900 hover:bg-gray-800 dark:bg-indigo-600 dark:hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-base font-black shadow-xl dark:shadow-none flex items-center justify-center gap-3 transition-all disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />}
                   Finalize Marks
@@ -345,56 +356,56 @@ export const TeacherPortal: React.FC = () => {
               </div>
 
               {/* Decorative background element */}
-              <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-50/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+              <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-50/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
             </div>
 
-            <div className="bg-white rounded-[40px] border border-gray-100 shadow-sm overflow-hidden overflow-x-auto">
-              <table className="w-full text-left">
+            <div className="bg-white dark:bg-gray-900 rounded-[32px] sm:rounded-[40px] border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden overflow-x-auto">
+              <table className="w-full text-left min-w-[700px] border-collapse">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="px-10 py-6 text-xs font-black text-gray-400 uppercase tracking-widest uppercase">Student</th>
-                    <th className="px-10 py-6 text-xs font-black text-gray-400 uppercase tracking-widest">Identity Info</th>
-                    <th className="px-10 py-6 text-xs font-black text-gray-400 uppercase tracking-widest w-48 text-center text-indigo-600">Semester 01</th>
-                    <th className="px-10 py-6 text-xs font-black text-gray-400 uppercase tracking-widest w-48 text-center text-indigo-600">Semester 02</th>
-                    <th className="px-10 py-6 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Academic Avg</th>
+                  <tr className="bg-gray-50 dark:bg-gray-850/50 border-b border-gray-100 dark:border-gray-800">
+                    <th className="px-6 sm:px-10 py-5 text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">Student</th>
+                    <th className="px-6 sm:px-10 py-5 text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">Identity Info</th>
+                    <th className="px-6 sm:px-10 py-5 text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest w-40 text-center">Semester 01</th>
+                    <th className="px-6 sm:px-10 py-5 text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest w-40 text-center">Semester 02</th>
+                    <th className="px-6 sm:px-10 py-5 text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest text-right">Academic Avg</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-gray-50 dark:divide-gray-850/60">
                   {students.map(student => {
                     const m = marks[student.studentId] || { semester1: 0, semester2: 0 };
                     return (
-                      <tr key={student.id} className="hover:bg-gray-50/50 transition-colors group">
-                        <td className="px-10 py-6">
+                      <tr key={student.id} className="hover:bg-gray-50/55 dark:hover:bg-gray-850/30 transition-colors group">
+                        <td className="px-6 sm:px-10 py-5">
                            <div className="flex flex-col">
-                             <span className="font-black text-gray-900 group-hover:text-indigo-600 transition-colors text-lg">{student.name}</span>
-                             <span className="text-gray-400 text-xs font-bold font-sans uppercase tracking-widest">{student.sex === 'M' ? 'Male' : 'Female'} • Age {student.age}</span>
+                             <span className="font-black text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors text-base sm:text-lg">{student.name}</span>
+                             <span className="text-gray-450 dark:text-gray-500 text-xs font-bold font-sans uppercase tracking-widest">{student.sex === 'M' ? 'Male' : 'Female'} • Age {student.age}</span>
                            </div>
                         </td>
-                        <td className="px-10 py-6">
-                           <code className="bg-gray-100 px-3 py-1.5 rounded-lg text-xs font-mono font-black text-gray-500 tracking-wider ">{student.studentId}</code>
+                        <td className="px-6 sm:px-10 py-5">
+                           <code className="bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-lg text-xs font-mono font-black text-gray-500 dark:text-gray-400 tracking-wider font-bold">{student.studentId}</code>
                         </td>
-                        <td className="px-10 py-6">
+                        <td className="px-6 sm:px-10 py-5 text-center">
                           <input 
                             type="number" 
                             min="0"
                             max="100"
                             value={m.semester1} 
                             onChange={(e) => handleMarkChange(student.studentId, 'semester1', e.target.value)}
-                            className="w-24 p-4 bg-gray-50 border border-gray-100 rounded-2xl text-center text-lg font-black focus:ring-4 focus:ring-indigo-100 focus:bg-white outline-none transition-all group-hover:border-gray-200" 
+                            className="w-20 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-750 text-gray-900 dark:text-white rounded-2xl text-center text-base sm:text-lg font-black focus:ring-4 focus:ring-indigo-100/30 focus:bg-white dark:focus:bg-gray-900 outline-none transition-all group-hover:border-gray-200 dark:group-hover:border-gray-700" 
                           />
                         </td>
-                        <td className="px-10 py-6">
+                        <td className="px-6 sm:px-10 py-5 text-center">
                           <input 
                             type="number" 
                             min="0"
                             max="100"
                             value={m.semester2} 
                             onChange={(e) => handleMarkChange(student.studentId, 'semester2', e.target.value)}
-                            className="w-24 p-4 bg-gray-50 border border-gray-100 rounded-2xl text-center text-lg font-black focus:ring-4 focus:ring-indigo-100 focus:bg-white outline-none transition-all group-hover:border-gray-200" 
+                            className="w-20 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-750 text-gray-900 dark:text-white rounded-2xl text-center text-base sm:text-lg font-black focus:ring-4 focus:ring-indigo-100/30 focus:bg-white dark:focus:bg-gray-900 outline-none transition-all group-hover:border-gray-250 dark:group-hover:border-gray-700" 
                           />
                         </td>
-                        <td className="px-10 py-6 text-right">
-                          <span className={`text-2xl font-black tabular-nums ${((m.semester1 + m.semester2) / 2) >= (config?.passMark || 50) ? 'text-green-600' : 'text-red-500'}`}>
+                        <td className="px-6 sm:px-10 py-5 text-right">
+                          <span className={`text-xl sm:text-2xl font-black tabular-nums ${((m.semester1 + m.semester2) / 2) >= (config?.passMark || 50) ? 'text-green-650' : 'text-red-500'}`}>
                             {((m.semester1 + m.semester2) / 2).toFixed(1)}
                           </span>
                         </td>
@@ -403,7 +414,7 @@ export const TeacherPortal: React.FC = () => {
                   })}
                   {students.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-10 py-32 text-center text-gray-300 font-black uppercase tracking-widest italic opacity-50">
+                      <td colSpan={5} className="px-10 py-32 text-center text-gray-300 dark:text-gray-650 font-black uppercase tracking-widest italic opacity-50">
                          No student profiles found for this class section
                       </td>
                     </tr>
