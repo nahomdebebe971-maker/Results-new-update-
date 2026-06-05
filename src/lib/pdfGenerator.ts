@@ -2,155 +2,418 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Student, SchoolConfig, Subject } from '../types';
 
+// Oromo Translation Helper
+const translateSex = (sex: string): string => {
+  const s = sex?.trim().toUpperCase();
+  if (s === 'M' || s === 'MALE' || s === 'DHIIRA') return 'Dhiira (Male)';
+  if (s === 'F' || s === 'FEMALE' || s === 'DUBARTII') return 'Dubartii (Female)';
+  return sex || 'N/A';
+};
+
+const translateStatus = (status: string, avg?: number, passMark: number = 50): string => {
+  const s = status?.trim().toUpperCase();
+  if (s === 'PASS' || s === 'DARBEE' || s === 'DARBI') return 'Darbe (Pass)';
+  if (s === 'FAIL' || s === 'KUFEE' || s === 'KUFI') return 'Kufe (Fail)';
+  if (s === 'DROPOUT' || s === 'ADDAAN KUTE') return 'Addaan Kutaan (Dropout)';
+  
+  // Guard fallback
+  if (avg !== undefined) {
+    return avg >= passMark ? 'Darbe (Pass)' : 'Kufe (Fail)';
+  }
+  return status || 'N/A';
+};
+
 export const generateStudentTranscript = (student: Student, config: SchoolConfig, subjects: Subject[]) => {
-  const doc = new jsPDF();
-  const primaryColor = [31, 41, 55]; // Gray-800 for professional look
-  const accentColor = [79, 70, 229]; // Indigo-600
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageHeight = doc.internal.pageSize.height;
+  const pageWidth = doc.internal.pageSize.width;
   
-  // Outer Border
-  doc.setDrawColor(200, 200, 200);
-  doc.setLineWidth(0.5);
-  doc.rect(5, 5, 200, 287);
+  // Custom Color Theme: Academic Deep Indigo
+  const primaryThemeColor = [27, 38, 59]; // Deep Navy
+  const secondaryThemeColor = [65, 90, 119]; // Slate Blue
+  const darkGray = [33, 37, 41];
+  const borderGray = [220, 225, 230];
 
-  // Header Section
-  doc.setFillColor(31, 41, 55);
-  doc.rect(10, 10, 190, 45, 'F');
-  
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(26);
+  // Outer Decorative double border
+  doc.setDrawColor(27, 38, 59);
+  doc.setLineWidth(0.8);
+  doc.rect(8, 8, pageWidth - 16, pageHeight - 16);
+  doc.setDrawColor(220, 225, 230);
+  doc.setLineWidth(0.2);
+  doc.rect(9.5, 9.5, pageWidth - 19, pageHeight - 19);
+
+  // --- BRANDING HEADER / LOGO ---
+  // Beautiful Academic Crest/Emblem vector drawn directly on PDF
+  const drawEmblem = (x: number, y: number) => {
+    // Outer shield circle
+    doc.setDrawColor(27, 38, 59);
+    doc.setLineWidth(1);
+    doc.setFillColor(250, 250, 250);
+    doc.circle(x, y, 16, 'FD');
+    
+    // Inner emblem details
+    doc.setDrawColor(180, 150, 50); // Gold accent
+    doc.setLineWidth(0.5);
+    doc.circle(x, y, 13.5, 'S');
+
+    // Stylized Open Book Vector in the center
+    doc.setFillColor(27, 38, 59);
+    // Left page
+    doc.triangle(x - 6, y + 2, x - 1, y - 3, x - 1, y + 3, 'F');
+    // Right page
+    doc.triangle(x + 6, y + 2, x + 1, y - 3, x + 1, y + 3, 'F');
+    // Book pages division lines
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(0.45);
+    doc.line(x - 5, y + 1.5, x - 2, y - 1);
+    doc.line(x + 5, y + 1.5, x + 2, y - 1);
+
+    // Olive wreath bottom arc
+    doc.setDrawColor(180, 150, 50);
+    doc.setLineWidth(0.4);
+    doc.ellipse(x, y + 8, 8, 3, 'S');
+
+    // School Symbol Text
+    doc.setTextColor(27, 38, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5);
+    doc.text('CHERCHER', x, y - 6, { align: 'center' });
+    doc.setFontSize(4);
+    doc.text('KNOWLEDGE IS POWER', x, y + 12, { align: 'center' });
+  };
+
+  // Draw the official crest at top left
+  drawEmblem(28, 28);
+
+  // --- SCHOOL IDENTIFICATION DETAILS (Top-Center and Right) ---
+  doc.setTextColor(27, 38, 59);
   doc.setFont('helvetica', 'bold');
-  doc.text(config.schoolName, 20, 28);
+  doc.setFontSize(18);
+  doc.text(config.schoolName.toUpperCase(), 48, 24);
   
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8.5);
+  doc.setTextColor(100, 110, 120);
+  doc.text(config.schoolMotto || 'KNOWLEDGE IS POWER', 48, 29);
+
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text('OFFICIAL ACADEMIC RECORD', 20, 38);
-  doc.text(`ACADEMIC YEAR: ${config.academicYear}`, 20, 44);
+  doc.setTextColor(65, 90, 119);
+  doc.text(`BARA BARNOOTAA (ACADEMIC YEAR): ${config.academicYear}`, 48, 34);
 
-  // Right side of header (contact info)
-  doc.setFontSize(8);
-  doc.text(config.contactInfo || '', 190, 25, { align: 'right' });
-  doc.text('Chercher, Ethiopia', 190, 30, { align: 'right' });
+  // Divider lines below header
+  doc.setDrawColor(27, 38, 59);
+  doc.setLineWidth(0.65);
+  doc.line(12, 48, pageWidth - 12, 48);
+  doc.setDrawColor(210, 215, 220);
+  doc.setLineWidth(0.2);
+  doc.line(12, 50, pageWidth - 12, 50);
 
-  // Student Profile Header
-  doc.setDrawColor(79, 70, 229);
-  doc.setLineWidth(1);
-  doc.line(10, 65, 200, 65);
-
-  doc.setTextColor(0, 0, 0);
-  doc.setFontSize(14);
+  // --- TRANSCRIPT TITLE ---
+  doc.setTextColor(27, 38, 59);
   doc.setFont('helvetica', 'bold');
-  doc.text('STUDENT INFORMATION', 10, 62);
+  doc.setFontSize(13);
+  doc.text('GALTUU ODEEFFANNOO BARATAA WALIIGALAA', pageWidth / 2, 58, { align: 'center' });
+  doc.setFontSize(10.5);
+  doc.text('OFFICIAL ACADEMIC TRANSCRIPT', pageWidth / 2, 63, { align: 'center' });
 
-  const studentInfoY = 75;
-  doc.setFontSize(10);
+  // --- STUDENT DETAILED INFORMATION PROFILE ---
+  // Background Card box for Student Info
+  doc.setFillColor(248, 249, 250);
+  doc.rect(12, 69, pageWidth - 24, 28, 'F');
+  doc.setDrawColor(220, 225, 230);
+  doc.setLineWidth(0.35);
+  doc.rect(12, 69, pageWidth - 24, 28, 'S');
+
+  // Profile data layout (Bilingual Oromo + English)
+  doc.setFontSize(8.5);
+  const col1X = 16;
+  const col2X = 112;
+  const line1Y = 75;
+  const line2Y = 83;
+  const line3Y = 91;
+
+  // Row 1
   doc.setFont('helvetica', 'bold');
-  doc.text('NAME:', 15, studentInfoY);
-  doc.text('STUDENT ID:', 15, studentInfoY + 8);
-  doc.text('SEX:', 15, studentInfoY + 16);
+  doc.setTextColor(110, 115, 125);
+  doc.text('Maqaa Guutuu (Full Name):', col1X, line1Y);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(27, 38, 59);
+  doc.setFontSize(9.5);
+  doc.text(student.name, col1X + 41, line1Y);
 
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(110, 115, 125);
+  doc.text('Eenyummeessa (Student ID):', col2X, line1Y);
+  doc.setFont('helvetica', 'mono-bold');
+  doc.setTextColor(27, 38, 59);
+  doc.setFontSize(9.5);
+  doc.text(student.studentId, col2X + 43, line1Y);
+
+  // Row 2
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(110, 115, 125);
+  doc.text('Saala (Sex):', col1X, line2Y);
   doc.setFont('helvetica', 'normal');
-  doc.text(student.name, 45, studentInfoY);
-  doc.text(student.studentId, 45, studentInfoY + 8);
-  doc.text(student.sex === 'M' ? 'Male' : 'Female', 45, studentInfoY + 16);
+  doc.setTextColor(33, 37, 41);
+  doc.text(translateSex(student.sex), col1X + 41, line2Y);
 
   doc.setFont('helvetica', 'bold');
-  doc.text('GRADE:', 110, studentInfoY);
-  doc.text('SECTION:', 110, studentInfoY + 8);
-  doc.text('AGE:', 110, studentInfoY + 16);
-
+  doc.setTextColor(110, 115, 125);
+  doc.text('Kutaa (Grade):', col2X, line2Y);
   doc.setFont('helvetica', 'normal');
-  doc.text(student.grade, 140, studentInfoY);
-  doc.text(student.section, 140, studentInfoY + 8);
-  doc.text(student.age.toString(), 140, studentInfoY + 16);
+  doc.setTextColor(33, 37, 41);
+  doc.text(student.grade, col2X + 43, line2Y);
 
-  // Performance Table
+  // Row 3
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(110, 115, 125);
+  doc.text('Umrii (Age):', col1X, line3Y);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(33, 37, 41);
+  doc.text(`${student.age || 'N/A'}`, col1X + 41, line3Y);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(110, 115, 125);
+  doc.text('Damee (Section):', col2X, line3Y);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(33, 37, 41);
+  doc.text(student.section, col2X + 43, line3Y);
+
+  // --- SUBJECT RESULTS ACADEMIC METRICS SHEET ---
+  const passMark = config.passMark || 50;
+
+  // Gather marks list
   const tableData = Object.entries(student.results || {}).map(([subId, res]) => {
     const subjectName = subjects?.find(s => s.id === subId || s.name === subId)?.name || subId;
+    const avgScore = Number(res.average || 0);
     return [
       subjectName,
-      res.semester1.toString(),
-      res.semester2.toString(),
-      res.average.toFixed(1),
-      res.average >= config.passMark ? 'PASS' : 'FAIL'
+      res.semester1?.toString() || '0',
+      res.semester2?.toString() || '0',
+      avgScore.toFixed(1),
+      translateStatus(res.average >= passMark ? 'Pass' : 'Fail', avgScore, passMark)
     ];
   });
 
+  // Table header in Oromo & English
   autoTable(doc, {
-    startY: studentInfoY + 25,
-    head: [['SUBJECT', 'SEM 1', 'SEM 2', 'AVERAGE', 'STATUS']],
+    startY: 104,
+    head: [[
+      { content: 'GOSA BARNOOTAA\n(Subject Course)', styles: { halign: 'left' } },
+      'SEEM 1\n(Semester 1)',
+      'SEEM 2\n(Semester 2)',
+      'AVEREJII\n(Average)',
+      'HAALA GALMEE\n(Status)'
+    ]],
     body: tableData,
     theme: 'grid',
-    headStyles: { 
-      fillColor: [31, 41, 55], 
+    headStyles: {
+      fillColor: [27, 38, 59],
       textColor: [255, 255, 255],
-      fontSize: 10,
+      fontSize: 8.5,
       fontStyle: 'bold',
       halign: 'center'
     },
-    styles: { 
-      fontSize: 9,
-      cellPadding: 4,
-      valign: 'middle',
-      font: 'helvetica'
+    styles: {
+      fontSize: 8.5,
+      cellPadding: 3.5,
+      lineColor: [210, 215, 220],
+      lineWidth: 0.15,
+      font: 'helvetica',
+      textColor: [33, 37, 41],
+      valign: 'middle'
     },
     columnStyles: {
-      0: { fontStyle: 'bold', minCellWidth: 60 },
-      1: { halign: 'center' },
-      2: { halign: 'center' },
-      3: { halign: 'center' },
-      4: { halign: 'center' }
+      0: { fontStyle: 'bold', minCellWidth: 65, halign: 'left' },
+      1: { halign: 'center', cellWidth: 28 },
+      2: { halign: 'center', cellWidth: 28 },
+      3: { halign: 'center', cellWidth: 28, fontStyle: 'bold' },
+      4: { halign: 'center', cellWidth: 35, fontStyle: 'bold' }
     },
-    margin: { left: 10, right: 10 }
+    margin: { left: 12, right: 12 },
+    didParseCell: (data) => {
+      // Colorize Pass and Fail cells beautifully
+      if (data.column.index === 4 && data.cell.text[0]) {
+        const textStr = data.cell.text[0].toUpperCase();
+        if (textStr.includes('DARBE') || textStr.includes('PASS')) {
+          data.cell.styles.textColor = [34, 139, 34]; // Forest green
+        } else {
+          data.cell.styles.textColor = [220, 20, 60]; // Crimson Red
+        }
+      }
+    }
   });
 
-  // Performance Summary
-  const finalY = (doc as any).lastAutoTable.finalY + 15;
-  
-  doc.setFillColor(249, 250, 251);
-  doc.rect(10, finalY, 190, 40, 'F');
-  doc.setDrawColor(229, 231, 235);
-  doc.rect(10, finalY, 190, 40, 'S');
+  // --- ACADEMIC SUMMARY BOX ---
+  const tableFinalY = (doc as any).lastAutoTable.finalY + 8;
 
-  doc.setFontSize(12);
+  // Header of academic summaries
+  doc.setTextColor(27, 38, 59);
   doc.setFont('helvetica', 'bold');
-  doc.text('ACADEMIC SUMMARY', 15, finalY + 10);
+  doc.setFontSize(10.5);
+  doc.text('AXAERE GALTUU BARNOOTAA SEEMESTARAA (SEMESTER ACADEMIC SUMMARIES)', 12, tableFinalY);
 
-  const summaryDataY = finalY + 22;
-  doc.setFontSize(10);
-  doc.text('Total Marks:', 15, summaryDataY);
-  doc.text('Final Average:', 15, summaryDataY + 8);
-  doc.text('Overall Rank:', 15, summaryDataY + 16);
-  
-  doc.setFont('helvetica', 'normal');
-  doc.text(student.final?.total.toFixed(1) || 'N/A', 50, summaryDataY);
-  doc.text(`${student.final?.average.toFixed(1)}%` || 'N/A', 50, summaryDataY + 8);
-  doc.text(student.final?.rank.toString() || 'N/A', 50, summaryDataY + 16);
+  const summaryHeaders = [
+    'Barbaachisaa (Academic Term)',
+    'Waliigala (Total Point)',
+    'Averejii (Average)',
+    'Sadarkaa (Rank)',
+    'Haala (Overall Status)'
+  ];
 
-  doc.setFont('helvetica', 'bold');
-  doc.text('Result Status:', 110, summaryDataY);
-  const status = student.final?.status || 'N/A';
-  doc.setTextColor(status === 'Pass' ? 22 : 185, status === 'Pass' ? 101 : 28, status === 'Pass' ? 52 : 28);
-  doc.text(status.toUpperCase(), 145, summaryDataY);
-  doc.setTextColor(0,0,0);
+  // Helper validation for dropout condition
+  const detectDropout = (): boolean => {
+    if (!subjects || subjects.length === 0) return false;
+    return subjects.some(sub => {
+      const res = student.results?.[sub.id] || student.results?.[sub.name];
+      const s1 = res?.semester1 ?? 0;
+      const s2 = res?.semester2 ?? 0;
+      return s1 === 0 && s2 === 0;
+    });
+  };
 
-  // Signatures
-  const signatureY = finalY + 65;
+  const isDrp = detectDropout();
+
+  const getS1Status = () => {
+    if (isDrp) return 'Addaan Kute (Dropout)';
+    return translateStatus(student.semester1?.status || '', student.semester1?.average, passMark);
+  };
+  const getS2Status = () => {
+    if (isDrp) return 'Addaan Kute (Dropout)';
+    return translateStatus(student.semester2?.status || '', student.semester2?.average, passMark);
+  };
+  const getFinalStatus = () => {
+    if (isDrp) return 'Addaan Kute (Dropout)';
+    return translateStatus(student.final?.status || '', student.final?.average, passMark);
+  };
+
+  const summaryRows = [
+    [
+      'Seemestara 1ffaa (Semester 1 Summary)',
+      student.semester1?.total.toFixed(0) || '0',
+      `${student.semester1?.average.toFixed(1)}%` || '0.0%',
+      student.semester1?.rank?.toString() || 'N/A',
+      getS1Status()
+    ],
+    [
+      'Seemestara 2ffaa (Semester 2 Summary)',
+      student.semester2?.total.toFixed(0) || '0',
+      `${student.semester2?.average.toFixed(1)}%` || '0.0%',
+      student.semester2?.rank?.toString() || 'N/A',
+      getS2Status()
+    ],
+    [
+      'Yaada Waliigalaa (Final Academic Record)',
+      student.final?.total.toFixed(0) || '0',
+      `${student.final?.average.toFixed(1)}%` || '0.0%',
+      student.final?.rank?.toString() || 'N/A',
+      getFinalStatus()
+    ]
+  ];
+
+  autoTable(doc, {
+    startY: tableFinalY + 2.5,
+    head: [summaryHeaders],
+    body: summaryRows,
+    theme: 'grid',
+    headStyles: {
+      fillColor: [65, 90, 119],
+      textColor: [255, 255, 255],
+      fontSize: 8,
+      fontStyle: 'bold',
+      halign: 'center'
+    },
+    styles: {
+      fontSize: 8,
+      cellPadding: 3,
+      lineColor: [220, 225, 230],
+      lineWidth: 0.1,
+      font: 'helvetica',
+      textColor: [33, 37, 41]
+    },
+    columnStyles: {
+      0: { fontStyle: 'bold', minCellWidth: 65, halign: 'left' },
+      1: { halign: 'center', cellWidth: 28 },
+      2: { halign: 'center', cellWidth: 28, fontStyle: 'bold' },
+      3: { halign: 'center', cellWidth: 28 },
+      4: { halign: 'center', cellWidth: 35, fontStyle: 'bold' }
+    },
+    margin: { left: 12, right: 12 },
+    didParseCell: (data) => {
+      // Colorize overall status
+      if (data.column.index === 4 && data.cell.text[0]) {
+        const textStr = data.cell.text[0].toUpperCase();
+        if (textStr.includes('ADDAAN') || textStr.includes('DROPOUT')) {
+          data.cell.styles.textColor = [230, 90, 30]; // Orange
+        } else if (textStr.includes('DARBE') || textStr.includes('PASS')) {
+          data.cell.styles.textColor = [34, 139, 34]; // Forest green
+        } else {
+          data.cell.styles.textColor = [220, 20, 60]; // Crimson Red
+        }
+      }
+    }
+  });
+
+  const summariesFinalY = (doc as any).lastAutoTable.finalY + 8;
+
+  // --- OFFICIAL INTEGRITY WARNING DISCLAIMER SECTION ---
+  doc.setFillColor(254, 243, 243); // Soft pinkish/red background
+  doc.rect(12, summariesFinalY, pageWidth - 24, 15, 'F');
+  doc.setDrawColor(241, 191, 191);
+  doc.setLineWidth(0.4);
+  doc.rect(12, summariesFinalY, pageWidth - 24, 15, 'S');
+
+  // Warning text
+  doc.setTextColor(180, 20, 20);
+  doc.setFont('helvetica', 'bold-italic');
+  doc.setFontSize(7.5);
+  doc.text('IBSA OFEGGANNOO OFFICIAL / SECURITY INTEGRITY WARNING STATEMENT:', 15, summariesFinalY + 4.5);
+  doc.setFont('helvetica', 'normal-italic');
+  doc.setTextColor(80, 20, 20);
+  doc.setFontSize(7.2);
+  doc.text('Any unauthorized alteration or modification of this document renders it invalid.', 15, summariesFinalY + 8);
+  doc.text('Jiddu-lixinsi ykn jijjiirraan hayyama malee sanada kana irratti taasifame kamiyyuu gatii dhabsiisa.', 15, summariesFinalY + 11.5);
+
+  // --- SIGNATURES AREA (Homeroom Teacher, Director, Date) ---
+  const signY = summariesFinalY + 34;
+  doc.setDrawColor(65, 90, 119);
   doc.setLineWidth(0.3);
-  doc.line(15, signatureY, 70, signatureY);
-  doc.line(140, signatureY, 195, signatureY);
 
-  doc.setFontSize(9);
+  // Divider lines for writing signature
+  doc.line(14, signY, 68, signY);           // Homeroom teacher
+  doc.line(78, signY, 132, signY);         // Director
+  doc.line(142, signY, 196, signY);         // Date
+
+  doc.setTextColor(27, 38, 59);
   doc.setFont('helvetica', 'bold');
-  doc.text("Homeroom Teacher's Signature", 15, signatureY + 5);
-  doc.text("School Principal's Signature", 140, signatureY + 5);
-
-  // Footer
-  const pageHeight = doc.internal.pageSize.height;
   doc.setFontSize(8);
-  doc.setTextColor(156, 163, 175);
-  doc.text(`Official Transcript ID: ${student.studentId}-${Date.now()}`, 10, pageHeight - 12);
-  doc.text(`Generated on ${new Date().toLocaleString()}`, 200, pageHeight - 12, { align: 'right' });
-  doc.text('Any alteration to this document renders it invalid.', 105, pageHeight - 7, { align: 'center' });
+  
+  // Under labels
+  doc.text('Barsiisaa Gorsaa', 41, signY + 3.5, { align: 'center' });
+  doc.text('(Homeroom Teacher)', 41, signY + 6.8, { align: 'center' });
+
+  doc.text('Daarektara Mana Barumsaa', 105, signY + 3.5, { align: 'center' });
+  doc.text('(School Director)', 105, signY + 6.8, { align: 'center' });
+
+  doc.text('Guyyaa (Date)', 169, signY + 3.5, { align: 'center' });
+  doc.text(new Date().toLocaleDateString('en-GB'), 169, signY + 7.5, { align: 'center' });
+
+  // Official Seal outline circle for principal
+  doc.setDrawColor(210, 215, 220);
+  doc.setLineWidth(0.25);
+  doc.circle(105, signY - 12, 11, 'S');
+  doc.setFont('helvetica', 'normal-italic');
+  doc.setFontSize(5);
+  doc.text('OFFICIAL SEAL', 105, signY - 11, { align: 'center' });
+
+  // --- METADATA FOOTER LINES ---
+  doc.setFontSize(7);
+  doc.setTextColor(150, 155, 160);
+  doc.text(`Official Document Fingerprint ID: CSS-TR-${student.studentId}-${Date.now().toString().slice(-6)}`, 12, pageHeight - 12);
+  doc.text(`Guyyaa kalaqame / Generated: ${new Date().toLocaleString()}`, pageWidth - 12, pageHeight - 12, { align: 'right' });
 
   doc.save(`${student.studentId}_Transcript.pdf`);
 };
