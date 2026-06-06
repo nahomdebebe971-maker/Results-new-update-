@@ -8,7 +8,8 @@ import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { GradeResultsTable } from './GradeResultsTable';
-import { calculateAndSaveAnalytics } from '../services/analyticsService';
+import { publishGradeResults } from '../lib/resultService';
+
 
 export const GradeManagement: React.FC = () => {
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -56,12 +57,17 @@ export const GradeManagement: React.FC = () => {
       ? currentPublished.filter(id => id !== gradeId)
       : [...currentPublished, gradeId];
     
+    const toastId = toast.loading(isPublished ? 'Unpublishing results...' : 'Precomputing and publishing results...');
     try {
+      // First, calculate & write precomputed documents
+      await publishGradeResults(gradeId, !isPublished, config);
+      // Wait, let's also update config so the state reflects accurately
       await updateConfig({ publishedGrades: newPublished });
-      await calculateAndSaveAnalytics();
-      toast.success(isPublished ? 'Results unpublished for this grade' : 'Results published successfully!');
+      
+      toast.success(isPublished ? 'Results unpublished for this grade' : 'Results published successfully!', { id: toastId });
     } catch (err) {
-      toast.error('Failed to update publishing status');
+      console.error(err);
+      toast.error('Failed to update publishing status', { id: toastId });
     }
   };
 
