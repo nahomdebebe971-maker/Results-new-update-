@@ -13,7 +13,7 @@ import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { toast } from 'react-hot-toast';
 
 export const TeacherPortal: React.FC = () => {
-  const { teacherId } = useAuth();
+  const { teacherId, teacherName } = useAuth();
   const { config } = useSchoolConfig();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -28,6 +28,43 @@ export const TeacherPortal: React.FC = () => {
   const [marks, setMarks] = useState<Record<string, { semester1: number, semester2: number, teacherId?: string }>>({});
 
   const [passkeyInput, setPasskeyInput] = useState('');
+
+  // Homeroom variables
+  const [homeroomGrade, setHomeroomGrade] = useState<Grade | null>(null);
+  const [homeroomStudentCount, setHomeroomStudentCount] = useState<number>(0);
+  const [homeroomStudents, setHomeroomStudents] = useState<Student[]>([]);
+  const [homeroomConduct, setHomeroomConduct] = useState<Record<string, string>>({});
+  const [homeroomAbsent, setHomeroomAbsent] = useState<Record<string, number>>({});
+  const [savingHomeroom, setSavingHomeroom] = useState(false);
+  const [saveHomeroomSuccess, setSaveHomeroomSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!teacherName) return;
+
+    const qGrades = query(collection(db, 'grades'));
+    const unsubscribe = onSnapshot(qGrades, async (snap) => {
+      const allGrades = snap.docs.map(d => ({ id: d.id, ...d.data() } as Grade));
+      const myHomeroom = allGrades.find(g => 
+        g.homeroomTeacher?.trim().toLowerCase() === teacherName.trim().toLowerCase()
+      );
+
+      if (myHomeroom) {
+        setHomeroomGrade(myHomeroom);
+        const qStudents = query(
+          collection(db, 'students'),
+          where('grade', '==', myHomeroom.name),
+          where('section', '==', myHomeroom.section)
+        );
+        const sSnap = await getDocs(qStudents);
+        setHomeroomStudentCount(sSnap.size);
+      } else {
+        setHomeroomGrade(null);
+        setHomeroomStudentCount(0);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [teacherName]);
 
   useEffect(() => {
     if (!teacherId) return;
@@ -168,6 +205,103 @@ export const TeacherPortal: React.FC = () => {
     }
   };
 
+  const handleOpenHomeroom = async () => {
+    if (!homeroomGrade) return;
+    setLoading(true);
+    try {
+      const q = query(
+        collection(db, 'students'),
+        where('grade', '==', homeroomGrade.name),
+        where('section', '==', homeroomGrade.section)
+      );
+      const sSnap = await getDocs(q);
+      const sList = sSnap.docs.map(d => {
+        const data = d.data();
+        return { 
+          id: d.id, 
+          ...data,
+          conduct: data.conduct ?? 'A',
+          absent: data.absent ?? 0
+        } as Student;
+      });
+      // Sort alphabetically A-Z
+      sList.sort((a, b) => {
+        const nameA = a.name.trim().replace(/\s+/g, ' ').toLowerCase();
+        const nameB = b.name.trim().replace(/\s+/g, ' ').toLowerCase();
+        return nameA.localeCompare(nameB, 'en', { sensitivity: 'base' });
+      });
+
+      setHomeroomStudents(sList);
+
+      const cond: Record<string, string> = {};
+      const abs: Record<string, number> = {};
+      sList.forEach(s => {
+        cond[s.id] = s.conduct ?? 'A';
+        abs[s.id] = s.absent ?? 0;
+      });
+      setHomeroomConduct(cond);
+      setHomeroomAbsent(abs);
+
+      setStep(4);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load homeroom students.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAbsentChange = (studentId: string, valStr: string) => {
+    const clean = valStr.replace(/[^0-9]/g, '');
+    const num = clean === '' ? 0 : parseInt(clean, 10);
+    setHomeroomAbsent(prev => ({
+      ...prev,
+      [studentId]: num
+    }));
+  };
+
+  const saveHomeroomData = async () => {
+    if (!homeroomGrade) return;
+    setSavingHomeroom(true);
+    setSaveHomeroomSuccess(false);
+    try {
+      const { doc, updateDoc, getDoc } = await import('firebase/firestore');
+      
+      for (const s of homeroomStudents) {
+        const cond = homeroomConduct[s.id] ?? 'A';
+        const abs = homeroomAbsent[s.id] ?? 0;
+        
+        await updateDoc(doc(db, 'students', s.id), {
+          conduct: cond,
+          absent: abs,
+          updatedAt: new Date().toISOString()
+        });
+
+        const pubRef = doc(db, 'publishedResults', s.id);
+        const pubSnap = await getDoc(pubRef);
+        if (pubSnap.exists()) {
+          await updateDoc(pubRef, {
+            conduct: cond,
+            absent: abs
+          });
+        }
+      }
+
+      if (config) {
+        await calculateResultsForGrade(homeroomGrade.name, homeroomGrade.section, config);
+      }
+
+      setSaveHomeroomSuccess(true);
+      toast.success('Conduct and Attendance Saved Successfully');
+      setTimeout(() => setSaveHomeroomSuccess(false), 3000);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to save Conduct and Attendance.');
+    } finally {
+      setSavingHomeroom(false);
+    }
+  };
+
   if (fetching) {
     return (
       <div className="flex-grow flex flex-col items-center justify-center py-20 bg-gray-50 dark:bg-gray-950 transition-colors">
@@ -195,6 +329,33 @@ export const TeacherPortal: React.FC = () => {
               <h1 className="text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight leading-none mb-4">Teaching Assignments</h1>
               <p className="text-gray-500 dark:text-gray-400 font-medium text-base sm:text-lg">Select a class section to start recording or updating student marks.</p>
             </div>
+
+            {homeroomGrade && (
+              <div className="bg-gradient-to-r from-indigo-550 via-indigo-600 to-indigo-750 p-6 sm:p-8 rounded-[32px] border border-indigo-100/10 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative overflow-hidden text-white w-full">
+                <div className="space-y-2 relative z-10">
+                  <span className="bg-white/10 text-white border border-white/20 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full inline-block select-none">
+                    My Homeroom Class
+                  </span>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Grade {homeroomGrade.name}{homeroomGrade.section}</h2>
+                  <p className="text-white/85 font-semibold text-sm sm:text-base">
+                    Total Students assigned: <span className="font-extrabold text-white">{homeroomStudentCount}</span>
+                  </p>
+                </div>
+                
+                <button
+                  onClick={handleOpenHomeroom}
+                  disabled={loading}
+                  className="bg-white hover:bg-neutral-100 active:scale-95 text-indigo-600 px-6 py-4 rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg flex items-center gap-2 transition-all shrink-0 select-none cursor-pointer self-stretch md:self-auto justify-center"
+                >
+                  {loading ? <Loader2 className="animate-spin w-5 h-5" /> : (
+                    <>
+                      Manage Conduct & Attendance <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+                <div className="absolute right-0 top-0 w-80 h-80 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+              </div>
+            )}
 
             {assignments.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
@@ -416,6 +577,143 @@ export const TeacherPortal: React.FC = () => {
                     <tr>
                       <td colSpan={5} className="px-10 py-32 text-center text-gray-300 dark:text-gray-650 font-black uppercase tracking-widest italic opacity-50">
                          No student profiles found for this class section
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )}
+
+        {step === 4 && homeroomGrade && (
+          <motion.div
+            key="step4"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-8"
+          >
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-[32px] border border-gray-100 dark:border-gray-800 shadow-sm relative overflow-hidden">
+              <div className="relative z-10 w-full lg:w-auto">
+                <button 
+                  onClick={() => setStep(1)}
+                  className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-black text-xs uppercase tracking-widest mb-3 hover:translate-x-1 transition-transform cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Return Dashboard
+                </button>
+                <h2 className="text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight leading-none mb-1">
+                  Conduct & Attendance Management
+                </h2>
+                <div className="flex flex-wrap items-center gap-2 text-gray-500 dark:text-gray-400 font-bold">
+                   <div className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs">
+                     Grade {homeroomGrade.name}{homeroomGrade.section} Homeroom
+                   </div>
+                   <span className="hidden sm:inline">•</span>
+                   <span className="text-sm">Default: Conduct = A, Absent = 0</span>
+                </div>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 relative z-10 w-full lg:w-auto">
+                <AnimatePresence>
+                  {saveHomeroomSuccess && (
+                     <motion.div 
+                      key="success"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 px-6 py-3 rounded-2xl text-sm font-bold border border-green-100 dark:border-green-905/30 flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      <CheckCircle2 className="w-5 h-5" /> Conduct and Attendance Saved Successfully
+                     </motion.div>
+                  )}
+                </AnimatePresence>
+                <button 
+                  onClick={saveHomeroomData}
+                  disabled={savingHomeroom}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-base font-black shadow-xl dark:shadow-none flex items-center justify-center gap-3 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {savingHomeroom ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />}
+                  Save Changes
+                </button>
+              </div>
+
+              {/* Decorative background element */}
+              <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-50/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+            </div>
+
+            <div className="bg-white dark:bg-gray-900 rounded-[32px] sm:rounded-[40px] border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden overflow-x-auto">
+              <table className="w-full text-left min-w-[700px] border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-gray-850/50 border-b border-gray-100 dark:border-gray-800">
+                    <th className="px-6 py-5 text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest text-center w-20">Roll No</th>
+                    <th className="px-6 py-5 text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest w-40">Student ID</th>
+                    <th className="px-6 py-5 text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">Student Name</th>
+                    <th className="px-6 py-5 text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest text-center w-24">Sex</th>
+                    <th className="px-6 py-5 text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest text-center w-24">Age</th>
+                    <th className="px-6 sm:px-10 py-5 text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest w-48 text-center">Conduct (Amala)</th>
+                    <th className="px-6 sm:px-10 py-5 text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest w-48 text-center">Absent (Hafte)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50 dark:divide-gray-850/60">
+                  {homeroomStudents.map((student, index) => {
+                    const cond = homeroomConduct[student.id] ?? 'A';
+                    const abs = homeroomAbsent[student.id] ?? 0;
+                    return (
+                      <tr key={student.id} className="hover:bg-gray-50/55 dark:hover:bg-gray-850/30 transition-colors group">
+                        <td className="px-6 py-5 text-center font-mono font-bold text-gray-400 dark:text-gray-500">
+                          {index + 1}
+                        </td>
+                        <td className="px-6 py-5">
+                          <code className="bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-lg text-xs font-mono font-black text-indigo-600 dark:text-indigo-400 tracking-wider">
+                            {student.studentId}
+                          </code>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="font-black text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors text-base sm:text-lg">
+                            {student.name}
+                          </div>
+                        </td>
+                        <td className="px-6 py-5 text-center text-gray-500 dark:text-gray-400 font-bold text-sm">
+                          {student.sex}
+                        </td>
+                        <td className="px-6 py-5 text-center text-gray-500 dark:text-gray-400 font-bold text-sm">
+                          {student.age}
+                        </td>
+                        <td className="px-6 sm:px-10 py-5 text-center">
+                          <div className="flex justify-center">
+                            <select
+                              value={cond}
+                              onChange={(e) => setHomeroomConduct(prev => ({ ...prev, [student.id]: e.target.value }))}
+                              className="bg-gray-55 border border-black/10 text-gray-950 font-black text-sm rounded-xl focus:ring-4 focus:ring-indigo-100 focus:bg-white dark:focus:bg-gray-900 outline-none transition-all w-28 py-3 text-center cursor-pointer"
+                            >
+                              <option value="A">A</option>
+                              <option value="B">B</option>
+                              <option value="C">C</option>
+                              <option value="D">D</option>
+                              <option value="F">F</option>
+                            </select>
+                          </div>
+                        </td>
+                        <td className="px-6 sm:px-10 py-5 text-center">
+                          <div className="flex justify-center">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={abs}
+                              onChange={(e) => handleAbsentChange(student.id, e.target.value)}
+                              className="w-24 p-3 bg-gray-50 dark:bg-gray-850 border border-black/10 text-gray-900 dark:text-white rounded-2xl text-center text-base sm:text-lg font-black focus:ring-4 focus:ring-indigo-100/30 focus:bg-white dark:focus:bg-gray-900 outline-none transition-all font-mono"
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {homeroomStudents.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-10 py-32 text-center text-gray-300 dark:text-gray-650 font-black uppercase tracking-widest italic opacity-50">
+                         No student list loaded for your homeroom class
                       </td>
                     </tr>
                   )}

@@ -487,37 +487,16 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
                       <td className="px-6 py-4 font-black text-gray-900">{student.name}</td>
                       <td className="px-6 py-4">
                         <div className="flex justify-center">
-                          <select
-                            value={currentConduct}
-                            disabled={isSaving}
-                            onChange={(e) => updateConductAndAbsent(student.studentId, e.target.value, currentAbsent)}
-                            className="bg-gray-50 border border-gray-200 text-gray-800 text-xs rounded-xl focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 p-2 font-bold outline-none transition-all w-28 text-center cursor-pointer"
-                          >
-                            <option value="A">A</option>
-                            <option value="B">B</option>
-                            <option value="C">C</option>
-                            <option value="D">D</option>
-                            <option value="F">F</option>
-                          </select>
+                          <span className="inline-flex items-center justify-center font-black bg-indigo-50 text-indigo-700 text-xs rounded-xl px-4 py-2 w-20 text-center border border-indigo-100/30">
+                            {currentConduct}
+                          </span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center justify-center gap-3">
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={currentAbsent}
-                            disabled={isSaving}
-                            onChange={(e) => {
-                              const val = Math.max(0, parseInt(e.target.value) || 0);
-                              updateConductAndAbsent(student.studentId, currentConduct, val);
-                            }}
-                            className="bg-gray-50 border border-gray-200 text-gray-800 text-xs rounded-xl focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 p-2 font-bold outline-none transition-all w-20 text-center font-mono"
-                          />
-                          {isSaving && (
-                            <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
-                          )}
+                        <div className="flex items-center justify-center">
+                          <span className="inline-flex items-center justify-center font-black bg-amber-50 text-amber-700 text-xs rounded-xl px-4 py-2 w-20 text-center border border-amber-100/30 font-mono">
+                            {currentAbsent}
+                          </span>
                         </div>
                       </td>
                     </tr>

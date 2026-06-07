@@ -15,11 +15,12 @@ import {
   TrendingUp,
   Sparkles,
   Award,
-  BookOpen
+  BookOpen,
+  Pencil
 } from 'lucide-react';
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, getDocs, where } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, getDocs, where, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Grade, Student, Subject } from '../types';
+import { Grade, Student, Subject, Teacher } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { toast } from 'react-hot-toast';
@@ -35,6 +36,8 @@ export const GradeManagement: React.FC = () => {
   const [showAdd, setShowAdd] = useState(false);
   const [formData, setFormData] = useState({ name: '', section: '', homeroomTeacher: '' });
   const [selectedGrade, setSelectedGrade] = useState<Grade | null>(null);
+  const [editingGrade, setEditingGrade] = useState<Grade | null>(null);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   
   // High-performance actions states
   const [actionLoading, setActionLoading] = useState<{[key: string]: boolean}>({});
@@ -49,18 +52,40 @@ export const GradeManagement: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const qT = query(collection(db, 'teachers'), orderBy('name', 'asc'));
+    const unsubscribe = onSnapshot(qT, (snap) => {
+      setTeachers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Teacher)));
+    });
+    return () => unsubscribe();
+  }, []);
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.section) return;
     try {
-      await addDoc(collection(db, 'grades'), {
-        ...formData,
-        createdAt: new Date().toISOString(),
-      });
+      if (editingGrade) {
+        // Edit existing grade
+        await updateDoc(doc(db, 'grades', editingGrade.id), {
+          name: formData.name.trim(),
+          section: formData.section.trim(),
+          homeroomTeacher: formData.homeroomTeacher
+        });
+        toast.success(`Grade ${formData.name}${formData.section} updated successfully!`);
+        setEditingGrade(null);
+      } else {
+        // Create new grade
+        await addDoc(collection(db, 'grades'), {
+          ...formData,
+          createdAt: new Date().toISOString(),
+        });
+        toast.success(`Grade ${formData.name}${formData.section} created successfully!`);
+      }
       setFormData({ name: '', section: '', homeroomTeacher: '' });
       setShowAdd(false);
     } catch (err) {
       console.error(err);
+      toast.error('Failed to save grade.');
     }
   };
 
@@ -268,18 +293,25 @@ export const GradeManagement: React.FC = () => {
               </div>
               <div className="md:col-span-2 space-y-2">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Homeroom Teacher (Optional)</label>
-                <input 
-                  type="text" 
+                <select 
                   value={formData.homeroomTeacher}
                   onChange={e => setFormData({ ...formData, homeroomTeacher: e.target.value })}
-                  placeholder="Enter name"
-                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
-                />
+                  className="w-full p-4 bg-gray-50 border border-black/10 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none transition-all font-medium text-gray-700"
+                >
+                  <option value="">Select Homeroom Teacher</option>
+                  {teachers.map(t => (
+                    <option key={t.id} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
               </div>
               <div className="md:col-span-2 flex gap-4">
                 <button 
                   type="button"
-                  onClick={() => setShowAdd(false)}
+                  onClick={() => {
+                    setShowAdd(false);
+                    setEditingGrade(null);
+                    setFormData({ name: '', section: '', homeroomTeacher: '' });
+                  }}
                   className="flex-grow py-4 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all"
                 >
                   Cancel
@@ -288,7 +320,7 @@ export const GradeManagement: React.FC = () => {
                   type="submit"
                   className="flex-grow py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
                 >
-                  Create Grade
+                  {editingGrade ? 'Update Grade' : 'Create Grade'}
                 </button>
               </div>
             </form>
@@ -334,6 +366,18 @@ export const GradeManagement: React.FC = () => {
                     title={config?.publishedGrades?.includes(grade.id) ? 'Unpublish' : 'Publish'}
                   >
                     {config?.publishedGrades?.includes(grade.id) ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingGrade(grade);
+                      setFormData({ name: grade.name, section: grade.section, homeroomTeacher: grade.homeroomTeacher || '' });
+                      setShowAdd(true);
+                    }}
+                    className="p-2 text-gray-300 hover:text-indigo-500 rounded-xl hover:bg-indigo-50 transition-all"
+                    title="Edit Grade"
+                  >
+                    <Pencil className="w-5 h-5" />
                   </button>
                   <button 
                     onClick={(e) => {
