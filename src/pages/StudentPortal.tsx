@@ -329,7 +329,16 @@ export const StudentPortal: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                 <ResultCard title="Semester 01 Summary" data={student.semester1} accent="indigo" />
                 <ResultCard title="Semester 02 Summary" data={student.semester2} accent="blue" />
-                <ResultCard title="Final Academic Status" data={student.final} accent="emerald" />
+                <ResultCard 
+                  title="Final Academic Status" 
+                  data={student.final ? {
+                    ...student.final,
+                    total: (student.semester1 && student.semester2) 
+                      ? Number(((student.semester1.total + student.semester2.total) / 2).toFixed(1))
+                      : student.final.total
+                  } : undefined} 
+                  accent="emerald" 
+                />
                 <div className="p-6 rounded-3xl border border-indigo-100 dark:border-indigo-950 bg-indigo-50/10 dark:bg-indigo-950/15 shadow-sm transition-all relative overflow-hidden group">
                   <h3 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase mb-4 tracking-widest">Conduct & Attendance</h3>
                   <div className="space-y-4 relative z-10">

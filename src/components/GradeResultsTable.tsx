@@ -214,7 +214,9 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
       row['S2 Rank'] = student.semester2?.rank || 'N/A';
       row['S2 Status'] = student.semester2?.status || 'N/A';
 
-      row['Final Total'] = student.final?.total || 'N/A';
+      row['Final Total'] = (student.semester1 && student.semester2)
+        ? ((student.semester1.total + student.semester2.total) / 2).toFixed(1)
+        : (student.final?.total || 'N/A');
       row['Final Avg'] = student.final?.average !== undefined && student.final?.average !== null ? student.final.average.toFixed(1) : 'N/A';
       row['Final Rank'] = student.final?.rank || 'N/A';
       row['Final Status'] = student.final?.status || 'N/A';
@@ -416,7 +418,7 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
 
                     {/* Final Summary */}
                     <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-700 bg-emerald-50/5">
-                      {formatSummaryValue(student.final?.total)}
+                      {formatSummaryValue((student.semester1 && student.semester2) ? ((student.semester1.total + student.semester2.total) / 2) : student.final?.total)}
                     </td>
                     <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-emerald-600 bg-emerald-50/5">
                       {formatSummaryValue(student.final?.average, true)}

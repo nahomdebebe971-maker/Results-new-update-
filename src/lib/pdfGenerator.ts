@@ -66,8 +66,7 @@ const loadLogoImage = (url: string): Promise<HTMLImageElement> => {
   });
 };
 
-export const generateStudentTranscript = async (student: Student, config: SchoolConfig, subjects: Subject[]) => {
-  const doc = new jsPDF('p', 'mm', 'a4');
+export const drawSingleTranscriptPage = (doc: jsPDF, student: Student, config: SchoolConfig, subjects: Subject[], logoImg: HTMLImageElement | null) => {
   const pageHeight = doc.internal.pageSize.height;
   const pageWidth = doc.internal.pageSize.width;
   
@@ -125,28 +124,15 @@ export const generateStudentTranscript = async (student: Student, config: School
     doc.text('KNOWLEDGE IS POWER', x, y + 12, { align: 'center' });
   };
 
-  // Draw the official crest at top left or embed school logo dynamically
-  let imgLoaded = false;
-  let logoImg: HTMLImageElement | null = null;
-
-  if (config.schoolLogo) {
-    try {
-      logoImg = await loadLogoImage(config.schoolLogo);
-      imgLoaded = true;
-    } catch (e) {
-      console.warn('Failed to load school logo dynamically, falling back to clean vector emblem:', e);
-    }
-  }
-
-  if (imgLoaded && logoImg) {
+  if (logoImg) {
     try {
       // Cleanly determine format matching (default to PNG)
       let format = 'PNG';
-      if (config.schoolLogo.toLowerCase().includes('.jpg') || config.schoolLogo.toLowerCase().includes('.jpeg')) {
+      if (config.schoolLogo && (config.schoolLogo.toLowerCase().includes('.jpg') || config.schoolLogo.toLowerCase().includes('.jpeg'))) {
         format = 'JPEG';
-      } else if (config.schoolLogo.toLowerCase().includes('.svg')) {
+      } else if (config.schoolLogo && config.schoolLogo.toLowerCase().includes('.svg')) {
         format = 'SVG';
-      } else if (config.schoolLogo.toLowerCase().includes('.webp')) {
+      } else if (config.schoolLogo && config.schoolLogo.toLowerCase().includes('.webp')) {
         format = 'WEBP';
       }
       // Embed configured logo nicely aligned to the upper header
@@ -381,7 +367,9 @@ export const generateStudentTranscript = async (student: Student, config: School
     ],
     [
       'Yaada Waliigalaa (Final Academic Record)',
-      student.final?.total.toFixed(0) || '0',
+      student.semester1 && student.semester2 
+        ? ((student.semester1.total + student.semester2.total) / 2).toFixed(1)
+        : (student.final?.total?.toFixed(1) || '0'),
       `${student.final?.average.toFixed(1)}%` || '0.0%',
       student.final?.rank?.toString() || 'N/A',
       getFinalStatus()
@@ -495,6 +483,44 @@ export const generateStudentTranscript = async (student: Student, config: School
   doc.setTextColor(150, 155, 160);
   doc.text(`Official Document Fingerprint ID: CSS-TR-${student.studentId}-${Date.now().toString().slice(-6)}`, 12, pageHeight - 12);
   doc.text(`Guyyaa kalaqame / Generated: ${new Date().toLocaleString()}`, pageWidth - 12, pageHeight - 12, { align: 'right' });
+};
 
+export const generateStudentTranscript = async (student: Student, config: SchoolConfig, subjects: Subject[]) => {
+  const doc = new jsPDF('p', 'mm', 'a4');
+  let logoImg: HTMLImageElement | null = null;
+  if (config.schoolLogo) {
+    try {
+      logoImg = await loadLogoImage(config.schoolLogo);
+    } catch (e) {
+      console.warn('Failed to load logo dynamically, drawing emblem fallback:', e);
+    }
+  }
+  drawSingleTranscriptPage(doc, student, config, subjects, logoImg);
   doc.save(`${student.studentId}_Transcript.pdf`);
+};
+
+export const generateAllStudentTranscriptsForGrade = async (
+  studentsList: Student[],
+  config: SchoolConfig,
+  subjects: Subject[],
+  gradeName: string,
+  sectionName: string
+) => {
+  const doc = new jsPDF('p', 'mm', 'a4');
+  let logoImg: HTMLImageElement | null = null;
+  if (config.schoolLogo) {
+    try {
+      logoImg = await loadLogoImage(config.schoolLogo);
+    } catch (e) {
+      console.warn('Failed to load logo dynamically:', e);
+    }
+  }
+  
+  for (let i = 0; i < studentsList.length; i++) {
+    drawSingleTranscriptPage(doc, studentsList[i], config, subjects, logoImg);
+    if (i < studentsList.length - 1) {
+      doc.addPage();
+    }
+  }
+  doc.save(`${gradeName}${sectionName}-All-Student-Transcripts.pdf`);
 };

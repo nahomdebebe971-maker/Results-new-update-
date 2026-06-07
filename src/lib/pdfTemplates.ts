@@ -98,7 +98,10 @@ export const generateTranscript = async (student: Student, subjects: Subject[], 
   const finalY = (doc as any).lastAutoTable.finalY + 10;
   if (student.final) {
     doc.setFont('helvetica', 'bold');
-    doc.text(`YEARLY TOTAL: ${student.final.total}`, 15, finalY);
+    const calculatedTotal = (student.semester1 && student.semester2)
+      ? ((student.semester1.total + student.semester2.total) / 2)
+      : student.final.total;
+    doc.text(`YEARLY TOTAL: ${calculatedTotal.toFixed(1)}`, 15, finalY);
     doc.text(`YEARLY AVERAGE: ${student.final.average.toFixed(1)}`, 70, finalY);
     doc.text(`RANK: ${student.final.rank}`, 130, finalY);
     doc.text(`STATUS: ${student.final.status}`, 170, finalY);

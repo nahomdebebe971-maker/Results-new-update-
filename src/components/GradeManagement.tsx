@@ -1,15 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit3, Loader2, AlertCircle, UsersRound } from 'lucide-react';
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, updateDoc } from 'firebase/firestore';
+import { 
+  Plus, 
+  Trash2, 
+  Loader2, 
+  UsersRound, 
+  CheckCircle2, 
+  XCircle, 
+  BarChart3, 
+  Eye, 
+  FileDown, 
+  FileSpreadsheet, 
+  GraduationCap, 
+  X,
+  TrendingUp,
+  Sparkles,
+  Award,
+  BookOpen
+} from 'lucide-react';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, getDocs, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Grade, SchoolConfig } from '../types';
+import { Grade, Student, Subject } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
-import { CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { GradeResultsTable } from './GradeResultsTable';
 import { publishGradeResults } from '../lib/resultService';
-
+import { generateRosterPDF, generateRosterExcel, isMaleGender, isStudentDropout } from './RosterGenerator';
+import { generateAllStudentTranscriptsForGrade } from '../lib/pdfGenerator';
 
 export const GradeManagement: React.FC = () => {
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -18,6 +35,10 @@ export const GradeManagement: React.FC = () => {
   const [showAdd, setShowAdd] = useState(false);
   const [formData, setFormData] = useState({ name: '', section: '', homeroomTeacher: '' });
   const [selectedGrade, setSelectedGrade] = useState<Grade | null>(null);
+  
+  // High-performance actions states
+  const [actionLoading, setActionLoading] = useState<{[key: string]: boolean}>({});
+  const [analyticsGrade, setAnalyticsGrade] = useState<{grade: Grade; students: Student[]; subjects: Subject[]} | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, 'grades'), orderBy('createdAt', 'desc'));
@@ -70,6 +91,134 @@ export const GradeManagement: React.FC = () => {
       toast.error('Failed to update publishing status', { id: toastId });
     }
   };
+
+  // High-Performance Data Fetcher on Action Trigger
+  const handleGradeAction = async (grade: Grade, action: 'analytics' | 'roster-pdf' | 'roster-excel' | 'transcripts-pdf') => {
+    if (!config) return;
+    setActionLoading(prev => ({ ...prev, [grade.id]: true }));
+    const toastId = toast.loading(`Preparing grade ${grade.name}${grade.section} data...`);
+    try {
+      // 1. Fetch Students (Lazily & Targeted)
+      const sQuery = query(
+        collection(db, 'students'),
+        where('grade', '==', grade.name),
+        where('section', '==', grade.section)
+      );
+      const sSnap = await getDocs(sQuery);
+      const studentsList = sSnap.docs.map(d => {
+        const data = d.data();
+        let needsUpdate = false;
+        const conduct = data.conduct !== undefined ? data.conduct : (needsUpdate = true, 'A');
+        const absent = data.absent !== undefined ? data.absent : (needsUpdate = true, 0);
+        
+        if (needsUpdate) {
+          import('firebase/firestore').then(({ doc, updateDoc }) => {
+            updateDoc(doc(db, 'students', d.id), { conduct, absent }).catch(err => 
+              console.error('Error migrating student:', d.id, err)
+            );
+          });
+        }
+        return { id: d.id, ...data, conduct, absent } as Student;
+      });
+
+      // Sort alphabetically A-Z
+      studentsList.sort((a, b) => {
+        const nameA = a.name.trim().replace(/\s+/g, ' ').toLowerCase();
+        const nameB = b.name.trim().replace(/\s+/g, ' ').toLowerCase();
+        return nameA.localeCompare(nameB, 'en', { sensitivity: 'base' });
+      });
+
+      if (studentsList.length === 0) {
+        toast.error('No students found in this grade and section.', { id: toastId });
+        return;
+      }
+
+      // 2. Fetch Subjects
+      const subSnap = await getDocs(query(collection(db, 'subjects'), orderBy('name', 'asc')));
+      const subjectsList = subSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Subject));
+
+      if (subjectsList.length === 0) {
+        toast.error('No subjects defined in the system.', { id: toastId });
+        return;
+      }
+
+      if (action === 'analytics') {
+        setAnalyticsGrade({ grade, students: studentsList, subjects: subjectsList });
+        toast.success(`Loaded analytics for Grade ${grade.name}${grade.section}`, { id: toastId });
+      } else if (action === 'roster-pdf') {
+        generateRosterPDF(studentsList, subjectsList, config, `${grade.name}${grade.section}`, grades);
+        toast.success('Roster PDF generated successfully!', { id: toastId });
+      } else if (action === 'roster-excel') {
+        await generateRosterExcel(studentsList, subjectsList, config, `${grade.name}${grade.section}`, grades);
+        toast.success('Roster Excel generated successfully!', { id: toastId });
+      } else if (action === 'transcripts-pdf') {
+        await generateAllStudentTranscriptsForGrade(studentsList, config, subjectsList, grade.name, grade.section);
+        toast.success('All Student Transcripts generated successfully!', { id: toastId });
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('An error occurred while executing this action.', { id: toastId });
+    } finally {
+      setActionLoading(prev => ({ ...prev, [grade.id]: false }));
+    }
+  };
+
+  // Perform Calculations for open analytics inside modal
+  const getAnalyticsMetrics = () => {
+    if (!analyticsGrade || !config) return null;
+    const { students, subjects } = analyticsGrade;
+    const passMark = config.passMark || 50;
+
+    const maleStudents = students.filter(s => isMaleGender(s.sex));
+    const femaleStudents = students.filter(s => !isMaleGender(s.sex));
+    const dropouts = students.filter(s => isStudentDropout(s, subjects));
+    const activeStudents = students.filter(s => !isStudentDropout(s, subjects));
+
+    const passed = activeStudents.filter(s => (s.final?.average ?? 0) >= passMark);
+    const failed = activeStudents.filter(s => (s.final?.average ?? 0) < passMark);
+
+    const passRate = students.length > 0 ? (passed.length / students.length) * 100 : 0;
+    const failRate = students.length > 0 ? (failed.length / students.length) * 100 : 0;
+    const dropoutRate = students.length > 0 ? (dropouts.length / students.length) * 100 : 0;
+
+    // Top Performance Rank
+    const topStudents = [...activeStudents]
+      .sort((a, b) => (b.final?.average ?? 0) - (a.final?.average ?? 0))
+      .slice(0, 5);
+
+    // Subject averages
+    const subjectAverages = subjects.map(sub => {
+      let sum = 0, count = 0;
+      students.forEach(s => {
+        const mark = s.results?.[sub.id] || s.results?.[sub.name];
+        if (mark && mark.average !== undefined) {
+          sum += mark.average;
+          count++;
+        }
+      });
+      return {
+        name: sub.name,
+        average: count > 0 ? sum / count : 0
+      };
+    });
+
+    return {
+      total: students.length,
+      maleCount: maleStudents.length,
+      femaleCount: femaleStudents.length,
+      passedCount: passed.length,
+      failedCount: failed.length,
+      dropoutCount: dropouts.length,
+      passRate,
+      failRate,
+      dropoutRate,
+      topStudents,
+      subjectAverages
+    };
+  };
+
+  const metrics = getAnalyticsMetrics();
+  const passMark = config?.passMark || 50;
 
   return (
     <div className="space-y-8">
@@ -162,11 +311,13 @@ export const GradeManagement: React.FC = () => {
             <motion.div
               layout
               key={grade.id}
-              onClick={() => setSelectedGrade(grade)}
-              className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:shadow-indigo-100/20 transition-all group cursor-pointer relative overflow-hidden"
+              className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-xl hover:shadow-indigo-100/20 transition-all group relative overflow-hidden"
             >
               <div className="flex justify-between items-start mb-4 relative z-10">
-                <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-black text-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                <div 
+                  onClick={() => setSelectedGrade(grade)}
+                  className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center font-black text-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all cursor-pointer shadow-inner"
+                >
                   {grade.name}{grade.section}
                 </div>
                 <div className="flex items-center gap-2">
@@ -175,7 +326,7 @@ export const GradeManagement: React.FC = () => {
                       e.stopPropagation();
                       togglePublish(grade.id);
                     }}
-                    className={`p-2 rounded-lg transition-all ${
+                    className={`p-2 rounded-xl transition-all ${
                       config?.publishedGrades?.includes(grade.id)
                         ? 'bg-green-50 text-green-600 hover:bg-green-100'
                         : 'bg-amber-50 text-amber-500 hover:bg-amber-100'
@@ -189,27 +340,95 @@ export const GradeManagement: React.FC = () => {
                       e.stopPropagation();
                       handleDelete(grade.id);
                     }}
-                    className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
+                    className="p-2 text-gray-300 hover:text-red-500 rounded-xl hover:bg-red-50 transition-all"
                   >
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
               </div>
-              <p className="text-sm font-bold text-gray-900 relative z-10">Grade {grade.name}</p>
-              <p className="text-xs font-semibold text-gray-400 relative z-10">Section {grade.section}</p>
-              {grade.homeroomTeacher && (
-                <p className="text-[10px] font-bold text-indigo-500 mt-2 relative z-10 italic">Homeroom: {grade.homeroomTeacher}</p>
-              )}
-              <div className="mt-4 pt-4 border-t border-gray-50 flex items-center justify-between relative z-10">
-                 <span className={`text-[10px] font-black uppercase tracking-widest ${
-                   config?.publishedGrades?.includes(grade.id) ? 'text-green-500' : 'text-amber-500'
-                 }`}>
-                   {config?.publishedGrades?.includes(grade.id) ? 'Published' : 'Draft'}
-                 </span>
-                 <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
-                    View Results <BarChart3 className="w-3 h-3" />
-                 </div>
+
+              <div onClick={() => setSelectedGrade(grade)} className="cursor-pointer space-y-1">
+                <p className="text-lg font-black text-gray-900 tracking-tight leading-none">Grade {grade.name}</p>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest font-mono">Section {grade.section}</p>
+                {grade.homeroomTeacher && (
+                  <p className="text-[10px] font-extrabold text-indigo-500 italic pt-1 leading-none">Homeroom: {grade.homeroomTeacher}</p>
+                )}
+                
+                <div className="pt-2 flex items-center justify-between">
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${
+                    config?.publishedGrades?.includes(grade.id) ? 'text-green-500' : 'text-amber-500'
+                  }`}>
+                    {config?.publishedGrades?.includes(grade.id) ? '● Published' : '○ Draft'}
+                  </span>
+                </div>
               </div>
+
+              {/* Action Buttons Hub inside card */}
+              <div className="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-2 relative z-10 select-none">
+                <div className="text-[10px] font-black uppercase tracking-widest text-gray-400">Actions</div>
+                
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedGrade(grade);
+                    }}
+                    className="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-indigo-600 hover:text-white transition-all shadow-inner"
+                  >
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleGradeAction(grade, 'analytics');
+                    }}
+                    className="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-teal-50 text-teal-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-teal-600 hover:text-white transition-all shadow-inner"
+                    disabled={actionLoading[grade.id]}
+                  >
+                    {actionLoading[grade.id] ? <Loader2 className="animate-spin w-3.5 h-3.5" /> : <BarChart3 className="w-3.5 h-3.5" />} Analytics
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleGradeAction(grade, 'roster-pdf');
+                    }}
+                    className="flex flex-col items-center justify-center gap-1 pt-2 pb-1.5 bg-purple-50 text-purple-600 rounded-xl text-[8px] font-black uppercase tracking-wide hover:bg-purple-600 hover:text-white transition-all"
+                    title="Export Roster PDF"
+                    disabled={actionLoading[grade.id]}
+                  >
+                    <FileDown className="w-3.5 h-3.5 text-purple-500 group-hover:text-white" />
+                    <span>Roster PDF</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleGradeAction(grade, 'roster-excel');
+                    }}
+                    className="flex flex-col items-center justify-center gap-1 pt-2 pb-1.5 bg-emerald-50 text-emerald-600 rounded-xl text-[8px] font-black uppercase tracking-wide hover:bg-emerald-600 hover:text-white transition-all"
+                    title="Export Roster Excel"
+                    disabled={actionLoading[grade.id]}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500 group-hover:text-white" />
+                    <span>Roster Excel</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleGradeAction(grade, 'transcripts-pdf');
+                    }}
+                    className="flex flex-col items-center justify-center gap-1 pt-2 pb-1.5 bg-amber-50 text-amber-600 rounded-xl text-[8px] font-black uppercase tracking-wide hover:bg-amber-600 hover:text-white transition-all"
+                    title="Export All Transcripts PDF"
+                    disabled={actionLoading[grade.id]}
+                  >
+                    <GraduationCap className="w-3.5 h-3.5 text-amber-500 group-hover:text-white" />
+                    <span>Transcripts PDF</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-150 transition-transform">
                 <BarChart3 className="w-24 h-24 text-indigo-600" />
               </div>
@@ -218,6 +437,7 @@ export const GradeManagement: React.FC = () => {
         </div>
       )}
 
+      {/* COMPREHENSIVE VIEW WORKSPACE */}
       {selectedGrade && config && (
         <GradeResultsTable 
           grade={selectedGrade} 
@@ -225,6 +445,141 @@ export const GradeManagement: React.FC = () => {
           onClose={() => setSelectedGrade(null)} 
         />
       )}
+
+      {/* BILINGUAL GRADE ANALYTICS MODAL */}
+      <AnimatePresence>
+        {analyticsGrade && metrics && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative border border-gray-100 flex flex-col gap-6"
+            >
+              <button 
+                onClick={() => setAnalyticsGrade(null)}
+                className="absolute top-6 right-6 p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+
+              {/* Title Header */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-indigo-600">
+                  <Sparkles className="w-4 h-4" /> Xiinxala Miriitii Kutaa / Grade Analytics
+                </div>
+                <h3 className="text-2xl font-black text-gray-900 tracking-tight">
+                  Kutaa / Grade {analyticsGrade.grade.name}{analyticsGrade.grade.section} Report
+                </h3>
+                <p className="text-gray-400 text-xs font-bold font-mono">Bara Barnootaa / Academic Year: {config?.academicYear}</p>
+              </div>
+
+              {/* Key Indicators Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100/60 text-center">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Barattoota Galmeeffaman</p>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase leading-tight pb-1">Registered Students</p>
+                  <p className="text-3xl font-black text-slate-900">{metrics.total}</p>
+                  <p className="text-[10px] font-bold text-gray-400 mt-1">Dhiira / Male: {metrics.maleCount} | Dub / Fem: {metrics.femaleCount}</p>
+                </div>
+                <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100/50 text-center">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600/80">Darban (Darbee)</p>
+                  <p className="text-[9px] font-bold text-emerald-600/60 uppercase leading-tight pb-1">Passed Students</p>
+                  <p className="text-3xl font-black text-emerald-600">{metrics.passedCount}</p>
+                  <p className="text-[10px] font-black text-emerald-500 mt-1">{metrics.passRate.toFixed(1)}% Rate</p>
+                </div>
+                <div className="bg-rose-50/60 p-4 rounded-2xl border border-rose-100/50 text-center">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-rose-600/80">Kufan (Kufee)</p>
+                  <p className="text-[9px] font-bold text-rose-600/60 uppercase leading-tight pb-1">Failed Students</p>
+                  <p className="text-3xl font-black text-rose-600">{metrics.failedCount}</p>
+                  <p className="text-[10px] font-black text-rose-500 mt-1">{metrics.failRate.toFixed(1)}% Rate</p>
+                </div>
+                <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-100/50 text-center">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-600/80">Addaan Kutan (Dropout)</p>
+                  <p className="text-[9px] font-bold text-amber-600/60 uppercase leading-tight pb-1">Dropouts</p>
+                  <p className="text-3xl font-black text-amber-600">{metrics.dropoutCount}</p>
+                  <p className="text-[10px] font-black text-amber-500 mt-1">{metrics.dropoutRate.toFixed(1)}% Rate</p>
+                </div>
+              </div>
+
+              {/* Sub-sections layout */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
+                {/* Left: Top Performers */}
+                <div className="space-y-4">
+                  <h4 className="font-black text-gray-900 flex items-center gap-2 border-b border-gray-100 pb-2 text-sm uppercase tracking-wide">
+                    <Award className="w-4 h-4 text-amber-500" /> Barattoo qaphxii olaanaa / Top Performers
+                  </h4>
+                  {metrics.topStudents.length === 0 ? (
+                    <p className="text-xs font-bold text-gray-400">No active students recorded.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {metrics.topStudents.map((s, idx) => (
+                        <div 
+                          key={s.id}
+                          className="flex items-center justify-between p-3 bg-slate-50/50 rounded-xl hover:bg-slate-50 transition-colors border border-slate-100"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shadow">
+                              {idx + 1}
+                            </span>
+                            <div>
+                              <p className="text-xs font-extrabold text-gray-900">{s.name}</p>
+                              <p className="text-[10px] font-extrabold text-gray-400">{isMaleGender(s.sex) ? 'Dhiira' : 'Dubartii'} • Roll: #{idx + 1}</p>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-black font-mono">
+                            {s.final?.average?.toFixed(1) || '0'} avg
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Subject Performance */}
+                <div className="space-y-4">
+                  <h4 className="font-black text-gray-900 flex items-center gap-2 border-b border-gray-100 pb-2 text-sm uppercase tracking-wide">
+                    <BookOpen className="w-4 h-4 text-indigo-500" /> Qaphxii Giddu-galeessaa Gosa Barnootaa / Subject Performance
+                  </h4>
+                  <div className="space-y-3.5 max-h-[30vh] overflow-y-auto pr-2">
+                    {metrics.subjectAverages.map((sub, sIdx) => (
+                      <div key={sIdx} className="space-y-1">
+                        <div className="flex justify-between text-xs font-extrabold">
+                          <span className="text-slate-700">{sub.name}</span>
+                          <span className="text-indigo-600 font-mono">{sub.average.toFixed(1)} avg</span>
+                        </div>
+                        <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                          <div 
+                            style={{ width: `${Math.min(sub.average, 100)}%` }}
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              sub.average >= passMark ? 'bg-emerald-500' : 'bg-rose-500'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Close controls */}
+              <div className="border-t border-gray-100 pt-4 flex justify-end">
+                <button
+                  onClick={() => setAnalyticsGrade(null)}
+                  className="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold uppercase text-xs tracking-wider hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/10"
+                >
+                  Close Report
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

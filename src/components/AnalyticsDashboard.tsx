@@ -423,6 +423,52 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     doc.save(`${title.replace(/\s+/g, '_')}.pdf`);
   };
 
+  // Helper to compute sub-records for Semester 1, Semester 2, or overall average per subject
+  const getTermStats = (subMarks: Mark[], term: 'S1' | 'S2' | 'Avg') => {
+    const getScore = (m: Mark) => {
+      if (term === 'S1') return m.semester1;
+      if (term === 'S2') return m.semester2;
+      return (m.semester1 + m.semester2) / 2;
+    };
+
+    const maleMarks = subMarks.filter(m => classStudents.find(x => x.studentId === m.studentId)?.sex === 'M');
+    const femaleMarks = subMarks.filter(m => classStudents.find(x => x.studentId === m.studentId)?.sex === 'F');
+
+    const maleSum = maleMarks.reduce((acc, m) => acc + getScore(m), 0);
+    const femaleSum = femaleMarks.reduce((acc, m) => acc + getScore(m), 0);
+    const overallSum = subMarks.reduce((acc, m) => acc + getScore(m), 0);
+
+    const maleAvg = maleMarks.length > 0 ? (maleSum / maleMarks.length) : null;
+    const femaleAvg = femaleMarks.length > 0 ? (femaleSum / femaleMarks.length) : null;
+    const overallAvg = subMarks.length > 0 ? (overallSum / subMarks.length) : null;
+
+    const rangesCount = customRanges.map(range => {
+      const matchingMarks = subMarks.filter(m => {
+        const score = getScore(m);
+        return score >= range.min && score <= range.max;
+      });
+
+      const mCount = matchingMarks.filter(m => classStudents.find(s => s.studentId === m.studentId)?.sex === 'M').length;
+      const fCount = matchingMarks.filter(m => classStudents.find(s => s.studentId === m.studentId)?.sex === 'F').length;
+
+      return {
+        male: mCount,
+        female: fCount,
+        total: matchingMarks.length
+      };
+    });
+
+    return {
+      maleAvg,
+      femaleAvg,
+      overallAvg,
+      rangesCount,
+      maleCount: maleMarks.length,
+      femaleCount: femaleMarks.length,
+      totalCount: subMarks.length
+    };
+  };
+
   // EXCEL EXTRAS: Subject performance Matrix (English & Afaan Oromoo)
   const exportSubjectAnalysisExcel = (gradeSel: string, sectionSel: string) => {
     const matrixRows: any[] = [];
@@ -436,6 +482,7 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     // Prepare Column names
     const heading = {
       Subject: 'Subject (Gosa Barnootaa)',
+      Term: 'Term (Seem)',
       ...customRanges.reduce((acc, cr) => {
         return {
           ...acc,
@@ -452,35 +499,39 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
 
     masterSubjects.forEach(sub => {
       const subMarks = classMarks.filter(m => m.subjectId === sub.id);
-      const rowData: any = { Subject: sub.name };
+      
+      const s1Stats = getTermStats(subMarks, 'S1');
+      const s2Stats = getTermStats(subMarks, 'S2');
+      const avgStats = getTermStats(subMarks, 'Avg');
 
-      customRanges.forEach(range => {
-        const matchingMarks = subMarks.filter(m => {
-          const score = (m.semester1 + m.semester2) / 2;
-          return score >= range.min && score <= range.max;
+      const terms = [
+        { label: 'S1 (Seem 1)', stats: s1Stats },
+        { label: 'S2 (Seem 2)', stats: s2Stats },
+        { label: 'Avg (Giddugaleessa)', stats: avgStats }
+      ];
+
+      terms.forEach((t, tIdx) => {
+        const rowData: any = { 
+          Subject: tIdx === 0 ? sub.name : '',
+          Term: t.label
+        };
+
+        customRanges.forEach((range, rIdx) => {
+          const rc = t.stats.rangesCount[rIdx];
+          rowData[`${range.label} Male`] = rc.male;
+          rowData[`${range.label} Female`] = rc.female;
+          rowData[`${range.label} Total`] = rc.total;
         });
 
-        const maleCount = matchingMarks.filter(m => classStudents.find(s => s.studentId === m.studentId)?.sex === 'M').length;
-        const femaleCount = matchingMarks.filter(m => classStudents.find(s => s.studentId === m.studentId)?.sex === 'F').length;
+        rowData['Avg Male'] = t.stats.maleAvg !== null ? t.stats.maleAvg.toFixed(1) : '–';
+        rowData['Avg Female'] = t.stats.femaleAvg !== null ? t.stats.femaleAvg.toFixed(1) : '–';
+        rowData['Avg Total'] = t.stats.overallAvg !== null ? t.stats.overallAvg.toFixed(1) : '–';
 
-        rowData[`${range.label} Male`] = maleCount;
-        rowData[`${range.label} Female`] = femaleCount;
-        rowData[`${range.label} Total`] = matchingMarks.length;
+        // Clean up double assignments
+        delete rowData['Avg Female_1'];
+        
+        matrixRows.push(rowData);
       });
-
-      // Averages
-      const maleTotals = subMarks.filter(m => classStudents.find(x => x.studentId === m.studentId)?.sex === 'M');
-      const femaleTotals = subMarks.filter(m => classStudents.find(x => x.studentId === m.studentId)?.sex === 'F');
-
-      const maleS = maleTotals.reduce((a, b) => a + (b.semester1 + b.semester2) / 2, 0);
-      const femaleS = femaleTotals.reduce((a, b) => a + (b.semester1 + b.semester2) / 2, 0);
-      const overallS = subMarks.reduce((a, b) => a + (b.semester1 + b.semester2) / 2, 0);
-
-      rowData['Avg Male'] = maleTotals.length > 0 ? (maleS / maleTotals.length).toFixed(1) : '–';
-      rowData['Avg Female'] = femaleTotals.length > 0 ? (femaleS / femaleTotals.length).toFixed(1) : '–';
-      rowData['Avg Total'] = subMarks.length > 0 ? (overallS / subMarks.length).toFixed(1) : '–';
-
-      matrixRows.push(rowData);
     });
 
     const worksheet = XLSX.utils.json_to_sheet(matrixRows, { skipHeader: true });
@@ -499,50 +550,51 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     doc.text(`Grade (Kutaa): ${gradeSel}  |  Section (Daree): ${sectionSel}  |  Students (Baay’ina): ${classStudents.length}`, 14, 24);
 
     // Dynamic headers based on customizable ranges
-    const mainHeaderColspan = 1 + (customRanges.length * 3) + 3;
-    const firstRowHeader = ['Subject (Gosa Barnootaa)'];
+    const firstRowHeader = ['Subject (Gosa Barnootaa)', 'Term (Seem)'];
     customRanges.forEach(r => {
       firstRowHeader.push(r.label, '', '');
     });
     firstRowHeader.push('Average of Subject (Giddugaleessa Gosa Barnootaa)', '', '');
 
-    const secondRowHeader = [''];
+    const secondRowHeader = ['', ''];
     customRanges.forEach(() => {
       secondRowHeader.push('M', 'F', 'T');
     });
     secondRowHeader.push('Male', 'Female', 'Total');
 
-    const bodyRows = masterSubjects.map(sub => {
+    const bodyRows: any[] = [];
+    masterSubjects.forEach(sub => {
       const subMarks = classMarks.filter(m => m.subjectId === sub.id);
-      const rCells: any[] = [sub.name];
+      
+      const s1Stats = getTermStats(subMarks, 'S1');
+      const s2Stats = getTermStats(subMarks, 'S2');
+      const avgStats = getTermStats(subMarks, 'Avg');
 
-      customRanges.forEach(range => {
-        const matchingMarks = subMarks.filter(m => {
-          const score = (m.semester1 + m.semester2) / 2;
-          return score >= range.min && score <= range.max;
+      const terms = [
+        { label: 'S1 (Seem 1)', stats: s1Stats },
+        { label: 'S2 (Seem 2)', stats: s2Stats },
+        { label: 'Avg (Waliigala)', stats: avgStats }
+      ];
+
+      terms.forEach((t, tIdx) => {
+        const rCells: any[] = [
+          tIdx === 0 ? sub.name : '',
+          t.label
+        ];
+
+        customRanges.forEach((range, rIdx) => {
+          const rc = t.stats.rangesCount[rIdx];
+          rCells.push(rc.male, rc.female, rc.total);
         });
 
-        const maleCount = matchingMarks.filter(m => classStudents.find(s => s.studentId === m.studentId)?.sex === 'M').length;
-        const femaleCount = matchingMarks.filter(m => classStudents.find(s => s.studentId === m.studentId)?.sex === 'F').length;
+        rCells.push(
+          t.stats.maleAvg !== null ? t.stats.maleAvg.toFixed(1) : '–',
+          t.stats.femaleAvg !== null ? t.stats.femaleAvg.toFixed(1) : '–',
+          t.stats.overallAvg !== null ? t.stats.overallAvg.toFixed(1) : '–'
+        );
 
-        rCells.push(maleCount, femaleCount, matchingMarks.length);
+        bodyRows.push(rCells);
       });
-
-      // Averages
-      const maleTotals = subMarks.filter(m => classStudents.find(x => x.studentId === m.studentId)?.sex === 'M');
-      const femaleTotals = subMarks.filter(m => classStudents.find(x => x.studentId === m.studentId)?.sex === 'F');
-
-      const maleS = maleTotals.reduce((a, b) => a + (b.semester1 + b.semester2) / 2, 0);
-      const femaleS = femaleTotals.reduce((a, b) => a + (b.semester1 + b.semester2) / 2, 0);
-      const overallS = subMarks.reduce((a, b) => a + (b.semester1 + b.semester2) / 2, 0);
-
-      rCells.push(
-        maleTotals.length > 0 ? (maleS / maleTotals.length).toFixed(1) : '–',
-        femaleTotals.length > 0 ? (femaleS / femaleTotals.length).toFixed(1) : '–',
-        subMarks.length > 0 ? (overallS / subMarks.length).toFixed(1) : '–'
-      );
-
-      return rCells;
     });
 
     autoTable(doc, {
@@ -550,8 +602,11 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
       body: bodyRows,
       startY: 30,
       theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 2, halign: 'center' },
-      columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+      styles: { fontSize: 7, cellPadding: 1.5, halign: 'center' },
+      columnStyles: { 
+        0: { halign: 'left', fontStyle: 'bold', cellWidth: 40 },
+        1: { fontStyle: 'bold', fillColor: [248, 250, 252] }
+      },
       headStyles: { fillColor: [55, 48, 163] }
     });
 
@@ -1228,6 +1283,7 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
                   <thead>
                     <tr className="bg-indigo-900 text-white border-b border-indigo-950">
                       <th className="px-4 py-3 text-left border-r border-indigo-950" rowSpan={2}>Subject (Gosa Barnootaa)</th>
+                      <th className="px-2 py-3 text-center border-r border-indigo-950" rowSpan={2}>Term (Seem)</th>
                       {customRanges.map((range, idx) => (
                         <th key={idx} className="px-2 py-3 border-r border-indigo-950" colSpan={3}>
                           Range ({range.label})
@@ -1254,37 +1310,44 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
                     {masterSubjects.map(sub => {
                       const subMarks = classMarks.filter(m => m.subjectId === sub.id);
                       
-                      const maleTotals = subMarks.filter(m => classStudents.find(x => x.studentId === m.studentId)?.sex === 'M');
-                      const femaleTotals = subMarks.filter(m => classStudents.find(x => x.studentId === m.studentId)?.sex === 'F');
+                      const s1Stats = getTermStats(subMarks, 'S1');
+                      const s2Stats = getTermStats(subMarks, 'S2');
+                      const avgStats = getTermStats(subMarks, 'Avg');
 
-                      const maleS = maleTotals.reduce((a, b) => a + (b.semester1 + b.semester2) / 2, 0);
-                      const femaleS = femaleTotals.reduce((a, b) => a + (b.semester1 + b.semester2) / 2, 0);
-                      const overallS = subMarks.reduce((a, b) => a + (b.semester1 + b.semester2) / 2, 0);
+                      const terms = [
+                        { label: 'S1 (Seem 1)', stats: s1Stats },
+                        { label: 'S2 (Seem 2)', stats: s2Stats },
+                        { label: 'Avg (Waliigala)', stats: avgStats }
+                      ];
 
                       return (
-                        <tr key={sub.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 text-left font-black border-r text-gray-900">{sub.name}</td>
-                          {customRanges.map((range, rIdx) => {
-                            const matchingMarks = subMarks.filter(m => {
-                              const score = (m.semester1 + m.semester2) / 2;
-                              return score >= range.min && score <= range.max;
-                            });
-
-                            const mCount = matchingMarks.filter(m => classStudents.find(s => s.studentId === m.studentId)?.sex === 'M').length;
-                            const fCount = matchingMarks.filter(m => classStudents.find(s => s.studentId === m.studentId)?.sex === 'F').length;
-
-                            return (
-                              <React.Fragment key={rIdx}>
-                                <td className="px-1 py-3 text-gray-500 border-r">{mCount}</td>
-                                <td className="px-1 py-3 text-gray-500 border-r">{fCount}</td>
-                                <td className="px-1 py-3 font-extrabold text-gray-900 border-r bg-gray-50/50">{matchingMarks.length}</td>
-                              </React.Fragment>
-                            );
-                          })}
-                          <td className="px-2 py-3 border-r font-bold text-gray-600">{maleTotals.length > 0 ? (maleS / maleTotals.length).toFixed(1) : '–'}</td>
-                          <td className="px-2 py-3 border-r font-bold text-gray-600">{femaleTotals.length > 0 ? (femaleS / femaleTotals.length).toFixed(1) : '–'}</td>
-                          <td className="px-2 py-3 font-extrabold text-indigo-650 bg-indigo-50/30">{subMarks.length > 0 ? (overallS / subMarks.length).toFixed(1) : '–'}</td>
-                        </tr>
+                        <React.Fragment key={sub.id}>
+                          {terms.map((t, tIdx) => (
+                            <tr key={t.label} className="hover:bg-gray-50 transition-colors border-b last:border-b-2">
+                              {tIdx === 0 && (
+                                <td className="px-4 py-3 text-left font-black border-r text-gray-900 bg-gray-50/50 align-middle" rowSpan={3}>
+                                  {sub.name}
+                                </td>
+                              )}
+                              <td className="px-2 py-3 text-center border-r text-gray-600 font-bold bg-indigo-50/10 whitespace-nowrap">
+                                {t.label}
+                              </td>
+                              {customRanges.map((range, rIdx) => {
+                                const rc = t.stats.rangesCount[rIdx];
+                                return (
+                                  <React.Fragment key={rIdx}>
+                                    <td className="px-2 py-3 text-gray-500 border-r text-[11px]">{rc.male}</td>
+                                    <td className="px-2 py-3 text-gray-500 border-r text-[11px]">{rc.female}</td>
+                                    <td className="px-2 py-3 font-extrabold text-gray-900 border-r bg-gray-50/30 text-[11px]">{rc.total}</td>
+                                  </React.Fragment>
+                                );
+                              })}
+                              <td className="px-2 py-3 border-r font-bold text-gray-600 text-[11px]">{t.stats.maleAvg !== null ? t.stats.maleAvg.toFixed(1) : '–'}</td>
+                              <td className="px-2 py-3 border-r font-bold text-gray-600 text-[11px]">{t.stats.femaleAvg !== null ? t.stats.femaleAvg.toFixed(1) : '–'}</td>
+                              <td className="px-2 py-3 font-extrabold text-indigo-900 bg-indigo-50/30 text-[11px]">{t.stats.overallAvg !== null ? t.stats.overallAvg.toFixed(1) : '–'}</td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>

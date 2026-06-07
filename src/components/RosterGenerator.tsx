@@ -7,24 +7,25 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 // Resilient gender checker
-const isMaleGender = (sex: string): boolean => {
+export const isMaleGender = (sex: string): boolean => {
   const s = sex?.trim().toUpperCase() || 'M';
   return s.startsWith('M') || s.startsWith('DHI');
 };
 
 // Check for dropout status (where Semester 1 = 0 AND Semester 2 = 0 for at least one subject)
-const isStudentDropout = (s: Student, subjectsList: Subject[]): boolean => {
-  if (!subjectsList || subjectsList.length === 0) return false;
+export const isStudentDropout = (s: Student, subjectsList: Subject[]): boolean => {
+  if (!subjectsList || subjectsList.length === 0 || !s.results) return false;
   return subjectsList.some(sub => {
     const res = s.results?.[sub.id] || s.results?.[sub.name];
-    const s1 = res?.semester1 ?? 0;
-    const s2 = res?.semester2 ?? 0;
+    if (res === undefined) return false;
+    const s1 = res.semester1 ?? 0;
+    const s2 = res.semester2 ?? 0;
     return s1 === 0 && s2 === 0;
   });
 };
 
 // Helper to translate status beautifully in Oromo
-const getTranslatedStatus = (s: Student, sem: 'sem1' | 'sem2' | 'final', subjectsList: Subject[], passMark: number): string => {
+export const getTranslatedStatus = (s: Student, sem: 'sem1' | 'sem2' | 'final', subjectsList: Subject[], passMark: number): string => {
   if (isStudentDropout(s, subjectsList)) {
     return 'Addaan Kute'; // Dropout
   }
@@ -42,6 +43,498 @@ const getTranslatedStatus = (s: Student, sem: 'sem1' | 'sem2' | 'final', subject
   if (norm === 'FAIL' || norm === 'KUFE' || norm === 'KUFEE') return 'Kufe';
   if (norm === 'DROPOUT' || norm === 'ADDAAN KUTE' || norm === 'ADDAAN KUTAAN') return 'Addaan Kute';
   return status;
+};
+
+export const generateRosterPDF = (students: Student[], subjects: Subject[], config: SchoolConfig, selectedGrade: string, grades: Grade[]) => {
+  const doc = new jsPDF('l', 'mm', 'a4'); // Landscape A4
+  const studentsPerPage = 6;
+  const pages = Math.ceil(students.length / studentsPerPage);
+  const passMark = config.passMark || 50;
+
+  for (let pIdx = 0; pIdx < pages; pIdx++) {
+    if (pIdx > 0) doc.addPage();
+
+    const startIdx = pIdx * studentsPerPage;
+    const pageStudents = students.slice(startIdx, startIdx + studentsPerPage);
+    const currentGradeObj = grades.find(g => `${g.name}${g.section}` === selectedGrade);
+
+    // --- PAGE HEADER ---
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(27, 38, 59);
+    doc.text(config.schoolName.toUpperCase(), 148, 14, { align: 'center' });
+    
+    doc.setFontSize(8.5);
+    doc.setTextColor(80, 90, 100);
+    doc.text(`BARA BARNOOTAA (ACADEMIC YEAR): ${config.academicYear}`, 15, 23);
+    doc.text(`KUTAA & DAMEE (GRADE & SECTION): ${selectedGrade}`, 148, 23, { align: 'center' });
+    doc.text(`WAL-IDA'AMA BARATOOTA (TOTAL GRADE STUDENTS): ${students.length}`, 282, 23, { align: 'right' });
+    
+    if (currentGradeObj?.homeroomTeacher) {
+      doc.text(`BARSIISAA GORSAA (HOMEROOM TEACHER): ${currentGradeObj.homeroomTeacher}`, 15, 28);
+    }
+
+    // --- COMPACTED CORE RESULTS TABLE ---
+    const tableData: any[] = [];
+    pageStudents.forEach((s, idx) => {
+      const actualIdx = startIdx + idx + 1;
+      const s1Status = getTranslatedStatus(s, 'sem1', subjects, passMark);
+      const s2Status = getTranslatedStatus(s, 'sem2', subjects, passMark);
+      const finalStatus = getTranslatedStatus(s, 'final', subjects, passMark);
+
+      // Term 1 Row (using clean Oromo term descriptions '1ffaa2ffaaAve')
+      const term1Row: any[] = [
+        { content: actualIdx.toString(), rowSpan: 3, styles: { valign: 'middle', halign: 'center' } },
+        { content: s.name, rowSpan: 3, styles: { valign: 'middle', fontStyle: 'bold' } },
+        { content: isMaleGender(s.sex) ? 'Dhiira' : 'Dubartii', rowSpan: 3, styles: { valign: 'middle', halign: 'center' } },
+        { content: (s.age || 0).toString(), rowSpan: 3, styles: { valign: 'middle', halign: 'center' } },
+        { content: '1ffaa' }
+      ];
+
+      const term2Row = ['2ffaa'];
+      const aveRow = ['Ave'];
+
+      // Subjects scores
+      subjects.forEach(sub => {
+        const mark = s.results?.[sub.id] || s.results?.[sub.name];
+        
+        term1Row.push(mark?.semester1 !== undefined ? mark.semester1.toString() : '-');
+        term2Row.push(mark?.semester2 !== undefined ? mark.semester2.toString() : '-');
+        aveRow.push(mark?.average !== undefined ? mark.average.toFixed(1) : '-');
+      });
+
+      // Roster Summaries (IDA, AVE, SAD, G/H, conduct, absence)
+      term1Row.push(
+        s.semester1?.total.toString() || '0',
+        s.semester1?.average?.toFixed(1) || '0',
+        s.semester1?.rank.toString() || '0',
+        s1Status,
+        { content: s.conduct || 'A', rowSpan: 3, styles: { valign: 'middle' as const, halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: (s.absent ?? 0).toString(), rowSpan: 3, styles: { valign: 'middle' as const, halign: 'center' as const, fontStyle: 'bold' as const } }
+      );
+
+      term2Row.push(
+        s.semester2?.total.toString() || '0',
+        s.semester2?.average?.toFixed(1) || '0',
+        s.semester2?.rank.toString() || '0',
+        s2Status
+      );
+
+      aveRow.push(
+        (s.semester1 && s.semester2 ? ((s.semester1.total + s.semester2.total)/2).toFixed(1) : s.final?.total?.toFixed(1) || '0'),
+        s.final?.average?.toFixed(1) || '0',
+        s.final?.rank.toString() || '0',
+        finalStatus
+      );
+
+      tableData.push(term1Row, term2Row, aveRow);
+    });
+
+    autoTable(doc, {
+      startY: 31,
+      head: [[
+        { content: 'T/L\n(S/N)', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } },
+        { content: 'MAQAA GUUTUU\n(STUDENT FULL NAME)', rowSpan: 2, styles: { valign: 'middle' as const } },
+        { content: 'SAALA\n(SEX)', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } },
+        { content: 'UMRII\n(AGE)', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } },
+        { content: 'SEEM\n(TERM)', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } },
+        { content: 'GOSA BARNOOTAA (SUBJECT COURSES)', colSpan: subjects.length, styles: { halign: 'center' as const } },
+        { content: 'WALIIGALA BARNOOTAA (ACADEMIC RESULTS SUMMARY)', colSpan: 6, styles: { halign: 'center' as const } }
+      ], [
+        ...subjects.map(s => ({ content: s.name.toUpperCase().slice(0, 3), styles: { halign: 'center' as const, fontSize: 6.8 } })),
+        'IDA', 'AVE', 'SAD', 'G/H', 'AMALA', 'HAFTE'
+      ]],
+      body: tableData,
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
+      headStyles: { fillColor: [27, 38, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+      didParseCell: (data) => {
+        if (data.row.index % 3 === 2) { // Average row
+           data.cell.styles.fillColor = [252, 252, 252];
+           data.cell.styles.fontStyle = 'bold';
+        }
+        // Highlight status
+        if (data.column.index === (5 + subjects.length + 3)) {
+          const rawText = data.cell.text[0];
+          if (rawText === 'Darbe') {
+            data.cell.styles.textColor = [34, 139, 34]; // green
+          } else if (rawText === 'Kufe') {
+            data.cell.styles.textColor = [220, 20, 60]; // crimson
+          } else if (rawText === 'Addaan Kute') {
+            data.cell.styles.textColor = [230, 90, 30]; // orange
+          }
+        }
+      }
+    });
+
+    // --- EXCLUSIVE 4 STATISTICS TABLES FOOTER ---
+    let regM = 0, regF = 0, regT = 0;
+    let passM = 0, passF = 0, passT = 0;
+    let failM = 0, failF = 0, failT = 0;
+    let dropM = 0, dropF = 0, dropT = 0;
+
+    pageStudents.forEach(s => {
+      const isMale = isMaleGender(s.sex);
+      const finalStatus = getTranslatedStatus(s, 'final', subjects, passMark);
+
+      if (isMale) {
+        regM++;
+        if (finalStatus === 'Addaan Kute') dropM++;
+        else if (finalStatus === 'Darbe') passM++;
+        else failM++;
+      } else {
+        regF++;
+        if (finalStatus === 'Addaan Kute') dropF++;
+        else if (finalStatus === 'Darbe') passF++;
+        else failF++;
+      }
+    });
+    regT = regM + regF;
+    passT = passM + passF;
+    failT = failM + failF;
+    dropT = dropM + dropF;
+
+    // Render 4 Dynamic Oromo Tables side-by-side
+    const footerStartY = (doc as any).lastAutoTable.finalY + 6;
+    const tWidth = 58;
+    const gap = 8;
+
+    const footerData = [
+      { title: "Barattoota Galma'an\n(Registered Students)", m: regM, f: regF, t: regT },
+      { title: "Barattoota Darban\n(Passed Students)", m: passM, f: passF, t: passT },
+      { title: "Barattoota Kufan\n(Failed Students)", m: failM, f: failF, t: failT },
+      { title: "Barattoota Addaan Kutan\n(Dropout Students)", m: dropM, f: dropF, t: dropT }
+    ];
+
+    footerData.forEach((ft, i) => {
+      const xPos = 15 + i * (tWidth + gap);
+      if (xPos + tWidth > 285) return;
+
+      autoTable(doc, {
+        startY: footerStartY,
+        margin: { left: xPos },
+        tableWidth: tWidth,
+        head: [
+          [{ content: ft.title, colSpan: 3, styles: { halign: 'center', fillColor: [240, 243, 246], textColor: [27, 38, 59], fontStyle: 'bold', fontSize: 7, cellPadding: 1 } }],
+          [
+            { content: 'Dhiira\n(Male)', styles: { halign: 'center', fontSize: 6.5, fillColor: [255, 255, 255], textColor: [27, 38, 59], fontStyle: 'bold' } },
+            { content: 'Dubartii\n(Female)', styles: { halign: 'center', fontSize: 6.5, fillColor: [255, 255, 255], textColor: [27, 38, 59], fontStyle: 'bold' } },
+            { content: 'Ida\'ama\n(Total)', styles: { halign: 'center', fontSize: 6.5, fillColor: [255, 255, 255], textColor: [27, 38, 59], fontStyle: 'bold' } }
+          ]
+        ],
+        body: [
+          [
+            { content: ft.m.toString(), styles: { halign: 'center', fontSize: 8, fontStyle: 'bold', textColor: [27, 38, 59] } },
+            { content: ft.f.toString(), styles: { halign: 'center', fontSize: 8, fontStyle: 'bold', textColor: [27, 38, 59] } },
+            { content: ft.t.toString(), styles: { halign: 'center', fontSize: 8, fontStyle: 'bold', fillColor: [248, 249, 250], textColor: [27, 38, 59] } }
+          ]
+        ],
+        theme: 'grid',
+        styles: { cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 }
+      });
+    });
+  }
+
+  doc.save(`Roster_${selectedGrade}_Official.pdf`);
+};
+
+export const generateRosterExcel = async (students: Student[], subjects: Subject[], config: SchoolConfig, selectedGrade: string, grades: Grade[]) => {
+  const ExcelJS = await import('exceljs');
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Official Roster', {
+    pageSetup: {
+      orientation: 'landscape',
+      paperSize: 9, // A4
+      margins: { left: 0.25, right: 0.25, top: 0.3, bottom: 0.3, header: 0.15, footer: 0.15 },
+      fitToPage: true,
+      fitToWidth: 1,
+    }
+  });
+
+  const studentsPerPage = 6;
+  const totalPages = Math.ceil(students.length / studentsPerPage);
+  const hTeacher = grades.find(g => `${g.name}${g.section}` === selectedGrade)?.homeroomTeacher || 'N/A';
+  const passMark = config.passMark || 50;
+
+  // Utility to style ranges easily in code
+  const formatRange = (ws: any, r1: number, c1: number, r2: number, c2: number, styles: any) => {
+    for (let ri = r1; ri <= r2; ri++) {
+      for (let ci = c1; ci <= c2; ci++) {
+        const cell = ws.getCell(ri, ci);
+        if (styles.font) cell.font = styles.font;
+        if (styles.alignment) cell.alignment = styles.alignment;
+        if (styles.fill) cell.fill = styles.fill;
+        if (styles.border) cell.border = styles.border;
+      }
+    }
+  };
+
+  const totalColumns = 11 + subjects.length;
+
+  for (let pIdx = 0; pIdx < totalPages; pIdx++) {
+    const startIdx = pIdx * studentsPerPage;
+    const pageStudents = students.slice(startIdx, startIdx + studentsPerPage);
+    const r = pIdx * 30 + 1; // page offset rows
+
+    // Header Title
+    worksheet.mergeCells(r, 1, r, totalColumns);
+    const titleCell = worksheet.getCell(r, 1);
+    titleCell.value = `${config.schoolName.toUpperCase()} - OFFICIAL ACADEMIC ROSTER`;
+    formatRange(worksheet, r, 1, r, totalColumns, {
+      font: { name: 'Arial', size: 14, bold: true, color: { argb: 'FF1B263B' } },
+      alignment: { horizontal: 'center', vertical: 'middle' }
+    });
+    worksheet.getRow(r).height = 25;
+
+    // Sub-header stats row
+    worksheet.mergeCells(r + 1, 1, r + 1, totalColumns);
+    const subTitleCell = worksheet.getCell(r + 1, 1);
+    subTitleCell.value = `ACADEMIC YEAR: ${config.academicYear}   |   GRADE & SECTION: ${selectedGrade}   |   HOMEROOM TEACHER: ${hTeacher}   |   TOTAL GRADE STUDENTS: ${students.length}`;
+    formatRange(worksheet, r + 1, 1, r + 1, totalColumns, {
+      font: { name: 'Arial', size: 9, italic: true, color: { argb: 'FF4F5A64' } },
+      alignment: { horizontal: 'center', vertical: 'middle' }
+    });
+    worksheet.getRow(r + 1).height = 18;
+
+    // Primary Complex headers setup
+    worksheet.getRow(r + 3).height = 22;
+    worksheet.getRow(r + 4).height = 22;
+
+    // Merge static columns
+    const staticColPairs = [
+      { col: 1, label: 'T/L (S/N)' },
+      { col: 2, label: 'MAQAA GUUTUU (STUDENT FULL NAME)' },
+      { col: 3, label: 'SAALA (SEX)' },
+      { col: 4, label: 'UMRII (AGE)' },
+      { col: 5, label: 'SEEM (TERM)' }
+    ];
+
+    staticColPairs.forEach(pair => {
+      worksheet.mergeCells(r + 3, pair.col, r + 4, pair.col);
+      const cell = worksheet.getCell(r + 3, pair.col);
+      cell.value = pair.label;
+    });
+
+    // Subjects Grouped Header
+    const subjectsStartCol = 6;
+    const subjectsEndCol = 5 + subjects.length;
+    worksheet.mergeCells(r + 3, subjectsStartCol, r + 3, subjectsEndCol);
+    worksheet.getCell(r + 3, subjectsStartCol).value = 'GOSA BARNOOTAA (SUBJECT COURSES)';
+
+    subjects.forEach((sub, sidx) => {
+      worksheet.getCell(r + 4, subjectsStartCol + sidx).value = sub.name.toUpperCase().slice(0, 3);
+    });
+
+    // Academic Summaries Grouped Header
+    const summaryStartCol = subjectsEndCol + 1;
+    worksheet.mergeCells(r + 3, summaryStartCol, r + 3, totalColumns);
+    worksheet.getCell(r + 3, summaryStartCol).value = 'WALIIGALA BARNOOTAA (ACADEMIC RESULTS SUMMARY)';
+
+    const summaryLabels = ['IDA (TOT)', 'AVE (AVG)', 'SAD (RNK)', 'G/H (ST)', 'AMALA (CON)', 'HAFTE (ABS)'];
+    summaryLabels.forEach((label, lidx) => {
+      if (lidx < 4) {
+        worksheet.getCell(r + 4, summaryStartCol + lidx).value = label;
+      } else {
+        // AMALA and HAFTE spans all three sub-rows
+        worksheet.mergeCells(r + 3, summaryStartCol + lidx, r + 4, summaryStartCol + lidx);
+        worksheet.getCell(r + 3, summaryStartCol + lidx).value = label;
+      }
+    });
+
+    formatRange(worksheet, r + 3, 1, r + 4, totalColumns, {
+      font: { name: 'Arial', size: 8, bold: true, color: { argb: 'FFFFFFFF' } },
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B263B' } },
+      alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+      border: {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    });
+
+    // Fill Page Students rows
+    pageStudents.forEach((s, sidx) => {
+      const sr = r + 5 + sidx * 3; // Student row start (each has 3 sub-rows)
+      const actualIdx = startIdx + sidx + 1;
+
+      formatRange(worksheet, sr, 1, sr + 2, totalColumns, {
+        font: { name: 'Arial', size: 8.5 },
+        alignment: { horizontal: 'center', vertical: 'middle' },
+        border: {
+          top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+        }
+      });
+
+      // Horizontal Row spans for student details
+      worksheet.mergeCells(sr, 1, sr + 2, 1);
+      worksheet.getCell(sr, 1).value = actualIdx;
+
+      worksheet.mergeCells(sr, 2, sr + 2, 2);
+      worksheet.getCell(sr, 2).value = s.name;
+      worksheet.getCell(sr, 2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+      worksheet.mergeCells(sr, 3, sr + 2, 3);
+      worksheet.getCell(sr, 3).value = isMaleGender(s.sex) ? 'Dhiira' : 'Dubartii';
+
+      worksheet.mergeCells(sr, 4, sr + 2, 4);
+      worksheet.getCell(sr, 4).value = s.age || 0;
+
+      // Uniquely style average sub-row background color
+      formatRange(worksheet, sr + 2, 1, sr + 2, totalColumns, {
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
+      });
+
+      // Semester Terms labels
+      worksheet.getCell(sr, 5).value = '1ffaa';
+      worksheet.getCell(sr + 1, 5).value = '2ffaa';
+      worksheet.getCell(sr + 2, 5).value = 'Ave';
+
+      // Fill Subject scores
+      subjects.forEach((sub, subIdx) => {
+        const mark = s.results?.[sub.id] || s.results?.[sub.name];
+        worksheet.getCell(sr, subjectsStartCol + subIdx).value = mark?.semester1 !== undefined ? mark.semester1 : '-';
+        worksheet.getCell(sr + 1, subjectsStartCol + subIdx).value = mark?.semester2 !== undefined ? mark.semester2 : '-';
+        worksheet.getCell(sr + 2, subjectsStartCol + subIdx).value = mark?.average !== undefined ? Number(mark.average.toFixed(1)) : '-';
+      });
+
+      // Fill Summaries
+      worksheet.getCell(sr, summaryStartCol).value = s.semester1?.total ?? 0;
+      worksheet.getCell(sr + 1, summaryStartCol).value = s.semester2?.total ?? 0;
+      worksheet.getCell(sr + 2, summaryStartCol).value = (s.semester1 && s.semester2) ? Number(((s.semester1.total + s.semester2.total) / 2).toFixed(1)) : (s.final?.total ?? 0);
+
+      worksheet.getCell(sr, summaryStartCol + 1).value = Number(s.semester1?.average?.toFixed(1) || 0);
+      worksheet.getCell(sr + 1, summaryStartCol + 1).value = Number(s.semester2?.average?.toFixed(1) || 0);
+      worksheet.getCell(sr + 2, summaryStartCol + 1).value = Number(s.final?.average?.toFixed(1) || 0);
+
+      worksheet.getCell(sr, summaryStartCol + 2).value = s.semester1?.rank ?? '-';
+      worksheet.getCell(sr + 1, summaryStartCol + 2).value = s.semester2?.rank ?? '-';
+      worksheet.getCell(sr + 2, summaryStartCol + 2).value = s.final?.rank ?? '-';
+
+      const s1Stat = getTranslatedStatus(s, 'sem1', subjects, passMark);
+      const s2Stat = getTranslatedStatus(s, 'sem2', subjects, passMark);
+      const fStat = getTranslatedStatus(s, 'final', subjects, passMark);
+
+      worksheet.getCell(sr, summaryStartCol + 3).value = s1Stat;
+      worksheet.getCell(sr + 1, summaryStartCol + 3).value = s2Stat;
+      worksheet.getCell(sr + 2, summaryStartCol + 3).value = fStat;
+
+      // AMALA Conduct is row-spanned across 3 rows
+      worksheet.mergeCells(sr, summaryStartCol + 4, sr + 2, summaryStartCol + 4);
+      worksheet.getCell(sr, summaryStartCol + 4).value = s.conduct || 'A';
+
+      // HAFTE Absents is row-spanned across 3 rows
+      worksheet.mergeCells(sr, summaryStartCol + 5, sr + 2, summaryStartCol + 5);
+      worksheet.getCell(sr, summaryStartCol + 5).value = s.absent ?? 0;
+    });
+
+    // Write Page Roster footer tables
+    let regM = 0, regF = 0, regT = 0;
+    let passM = 0, passF = 0, passT = 0;
+    let failM = 0, failF = 0, failT = 0;
+    let dropM = 0, dropF = 0, dropT = 0;
+
+    pageStudents.forEach(s => {
+      const isMale = isMaleGender(s.sex);
+      const finalStatus = getTranslatedStatus(s, 'final', subjects, passMark);
+
+      if (isMale) {
+        regM++;
+        if (finalStatus === 'Addaan Kute') dropM++;
+        else if (finalStatus === 'Darbe') passM++;
+        else failM++;
+      } else {
+        regF++;
+        if (finalStatus === 'Addaan Kute') dropF++;
+        else if (finalStatus === 'Darbe') passF++;
+        else failF++;
+      }
+    });
+    regT = regM + regF;
+    passT = passM + passF;
+    failT = failM + failF;
+    dropT = dropM + dropF;
+
+    const pageFooterData = [
+      { title: "Barattoota Galma'an\n(Registered Students)", m: regM, f: regF, t: regT },
+      { title: "Barattoota Darban\n(Passed Students)", m: passM, f: passF, t: passT },
+      { title: "Barattoota Kufan\n(Failed Students)", m: failM, f: failF, t: failT },
+      { title: "Barattoota Addaan Kutan\n(Dropout Students)", m: dropM, f: dropF, t: dropT }
+    ];
+
+    worksheet.getRow(r + 24).height = 24;
+    worksheet.getRow(r + 25).height = 18;
+    worksheet.getRow(r + 26).height = 20;
+
+    let startCol = 2;
+    pageFooterData.forEach((ft) => {
+      const colCount = 3;
+
+      worksheet.mergeCells(r + 24, startCol, r + 24, startCol + colCount - 1);
+      const cell = worksheet.getCell(r + 24, startCol);
+      cell.value = ft.title;
+
+      formatRange(worksheet, r + 24, startCol, r + 24, startCol + colCount - 1, {
+        font: { name: 'Arial', size: 8, bold: true },
+        alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
+      });
+
+      const fields = [
+        { label: 'Dhiira (M)', val: ft.m },
+        { label: 'Dubartii (F)', val: ft.f },
+        { label: 'Waliigala (T)', val: ft.t }
+      ];
+
+      fields.forEach((f, fidx) => {
+        const fieldCol = startCol + fidx;
+
+        const fCell = worksheet.getCell(r + 25, fieldCol);
+        fCell.value = f.label;
+
+        const bCell = worksheet.getCell(r + 26, fieldCol);
+        bCell.value = f.val;
+      });
+
+      formatRange(worksheet, r + 24, startCol, r + 26, startCol + colCount - 1, {
+        border: {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        },
+        alignment: { horizontal: 'center', vertical: 'middle' },
+        font: { name: 'Arial', size: 8 }
+      });
+
+      // Special highlight for values
+      formatRange(worksheet, r + 26, startCol, r + 26, startCol + colCount - 1, {
+        font: { name: 'Arial', size: 9, bold: true }
+      });
+
+      startCol += colCount + 1; // plus gap col
+    });
+
+    if (pIdx < totalPages - 1) {
+      if (worksheet.getRow(r + 27)) {
+        worksheet.getRow(r + 27).addPageBreak();
+      }
+    }
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Roster_${selectedGrade}_Official_Roster.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
 };
 
 export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ config }) => {
@@ -189,7 +682,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
         );
 
         aveRow.push(
-          s.final?.total.toString() || '0',
+          (s.semester1 && s.semester2 ? ((s.semester1.total + s.semester2.total)/2).toFixed(1) : s.final?.total?.toFixed(1) || '0'),
           s.final?.average?.toFixed(1) || '0',
           s.final?.rank.toString() || '0',
           finalStatus
@@ -268,10 +761,10 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
       const gap = 8;
 
       const footerData = [
-        { title: "Baratoota Galmaa'an\n(Registered Students)", m: regM, f: regF, t: regT },
-        { title: "Baratoota Darban\n(Passed Students)", m: passM, f: passF, t: passT },
-        { title: "Baratoota Kufan\n(Failed Students)", m: failM, f: failF, t: failT },
-        { title: "Baratoota Addaan Kutaan\n(Dropout Students)", m: dropM, f: dropF, t: dropT }
+        { title: "Barattoota Galma'an\n(Registered Students)", m: regM, f: regF, t: regT },
+        { title: "Barattoota Darban\n(Passed Students)", m: passM, f: passF, t: passT },
+        { title: "Barattoota Kufan\n(Failed Students)", m: failM, f: failF, t: failT },
+        { title: "Barattoota Addaan Kutan\n(Dropout Students)", m: dropM, f: dropF, t: dropT }
       ];
 
       footerData.forEach((ft, i) => {
@@ -285,16 +778,16 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
           head: [
             [{ content: ft.title, colSpan: 3, styles: { halign: 'center', fillColor: [240, 243, 246], textColor: [27, 38, 59], fontStyle: 'bold', fontSize: 7, cellPadding: 1 } }],
             [
-              { content: 'Dhiira\n(Male)', styles: { halign: 'center', fontSize: 6.5, fillColor: [255, 255, 255] } },
-              { content: 'Dubartii\n(Female)', styles: { halign: 'center', fontSize: 6.5, fillColor: [255, 255, 255] } },
-              { content: 'Waliigala\n(Total)', styles: { halign: 'center', fontSize: 6.5, fillColor: [255, 255, 255] } }
+              { content: 'Dhiira\n(Male)', styles: { halign: 'center', fontSize: 6.5, fillColor: [255, 255, 255], textColor: [27, 38, 59], fontStyle: 'bold' } },
+              { content: 'Dubartii\n(Female)', styles: { halign: 'center', fontSize: 6.5, fillColor: [255, 255, 255], textColor: [27, 38, 59], fontStyle: 'bold' } },
+              { content: 'Ida\'ama\n(Total)', styles: { halign: 'center', fontSize: 6.5, fillColor: [255, 255, 255], textColor: [27, 38, 59], fontStyle: 'bold' } }
             ]
           ],
           body: [
             [
-              { content: ft.m.toString(), styles: { halign: 'center', fontSize: 8, fontStyle: 'bold' } },
-              { content: ft.f.toString(), styles: { halign: 'center', fontSize: 8, fontStyle: 'bold' } },
-              { content: ft.t.toString(), styles: { halign: 'center', fontSize: 8, fontStyle: 'bold', fillColor: [248, 249, 250] } }
+              { content: ft.m.toString(), styles: { halign: 'center', fontSize: 8, fontStyle: 'bold', textColor: [27, 38, 59] } },
+              { content: ft.f.toString(), styles: { halign: 'center', fontSize: 8, fontStyle: 'bold', textColor: [27, 38, 59] } },
+              { content: ft.t.toString(), styles: { halign: 'center', fontSize: 8, fontStyle: 'bold', fillColor: [248, 249, 250], textColor: [27, 38, 59] } }
             ]
           ],
           theme: 'grid',
@@ -523,7 +1016,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
 
           worksheet.getCell(sr, summaryStartCol).value = s.semester1?.total ?? 0;
           worksheet.getCell(sr + 1, summaryStartCol).value = s.semester2?.total ?? 0;
-          worksheet.getCell(sr + 2, summaryStartCol).value = s.final?.total ?? 0;
+          worksheet.getCell(sr + 2, summaryStartCol).value = (s.semester1 && s.semester2) ? Number(((s.semester1.total + s.semester2.total) / 2).toFixed(1)) : (s.final?.total ?? 0);
           worksheet.getCell(sr + 2, summaryStartCol).font = { name: 'Arial', size: 9, bold: true };
 
           worksheet.getCell(sr, summaryStartCol + 1).value = Number(s.semester1?.average?.toFixed(1) || 0);
@@ -605,10 +1098,10 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
       dropT = dropM + dropF;
 
       const pageFooterData = [
-        { title: "Baratoota Galmaa'an\n(Registered Students)", m: regM, f: regF, t: regT },
-        { title: "Baratoota Darban\n(Passed Students)", m: passM, f: passF, t: passT },
-        { title: "Baratoota Kufan\n(Failed Students)", m: failM, f: failF, t: failT },
-        { title: "Baratoota Addaan Kutaan\n(Dropout Students)", m: dropM, f: dropF, t: dropT }
+        { title: "Barattoota Galma'an\n(Registered Students)", m: regM, f: regF, t: regT },
+        { title: "Barattoota Darban\n(Passed Students)", m: passM, f: passF, t: passT },
+        { title: "Barattoota Kufan\n(Failed Students)", m: failM, f: failF, t: failT },
+        { title: "Barattoota Addaan Kutan\n(Dropout Students)", m: dropM, f: dropF, t: dropT }
       ];
 
       worksheet.getRow(r + 24).height = 24;
@@ -844,7 +1337,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                                     {(s.results?.[sub.id]?.average || s.results?.[sub.name]?.average || 0).toFixed(1)}
                                   </td>
                                 ))}
-                                <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 text-gray-900">{s.final?.total}</td>
+                                <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 text-gray-900">{(s.semester1 && s.semester2) ? ((s.semester1.total + s.semester2.total) / 2).toFixed(1) : s.final?.total}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 text-gray-900">{s.final?.average?.toFixed(1) ?? '0.0'}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 bg-indigo-50/30 text-indigo-900">#{s.final?.rank}</td>
                                 <td className={`p-2 border-r border-gray-200 text-center text-[11px] font-black border-t border-gray-100 ${statColor(finalStat)}`}>{finalStat}</td>
@@ -858,10 +1351,10 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
 
                   {/* 4 Beautiful Dynamic Oromo Footer Statistics Cards for Preview */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-                    <StatBox title="Baratoota Galmaa'an" english="Registered Students" m={regM} f={regF} t={regT} color="indigo" />
-                    <StatBox title="Baratoota Darban" english="Passed Students" m={passM} f={passF} t={passT} color="green" />
-                    <StatBox title="Baratoota Kufan" english="Failed Students" m={failM} f={failF} t={failT} color="red" />
-                    <StatBox title="Baratoota Addaan Kutaan" english="Dropout Students" m={dropM} f={dropF} t={dropT} color="orange" />
+                    <StatBox title="Barattoota Galma'an" english="Registered Students" m={regM} f={regF} t={regT} color="indigo" />
+                    <StatBox title="Barattoota Darban" english="Passed Students" m={passM} f={passF} t={passT} color="green" />
+                    <StatBox title="Barattoota Kufan" english="Failed Students" m={failM} f={failF} t={failT} color="red" />
+                    <StatBox title="Barattoota Addaan Kutan" english="Dropout Students" m={dropM} f={dropF} t={dropT} color="orange" />
                   </div>
                 </div>
               );

@@ -145,7 +145,7 @@ export const publishGradeResults = async (gradeId: string, publish: boolean, con
       subjects: subjectsArray,
       semester1: { total: s1Total, average: s1Avg, status: s1Avg >= config.passMark ? 'Pass' : 'Fail', rank: 0 },
       semester2: { total: s2Total, average: s2Avg, status: s2Avg >= config.passMark ? 'Pass' : 'Fail', rank: 0 },
-      final: { total: s1Total + s2Total, average: finalAvg, status: finalAvg >= config.passMark ? 'Pass' : 'Fail', rank: 0 }
+      final: { total: (s1Total + s2Total) / 2, average: finalAvg, status: finalAvg >= config.passMark ? 'Pass' : 'Fail', rank: 0 }
     };
     studentSummaries.push(summary);
   });
@@ -293,7 +293,7 @@ export const calculateResultsForGrade = async (gradeName: string, section: strin
       subjects: subjectsArray,
       semester1: { total: s1Total, average: s1Avg, status: s1Avg >= config.passMark ? 'Pass' : 'Fail', rank: 0 },
       semester2: { total: s2Total, average: s2Avg, status: s2Avg >= config.passMark ? 'Pass' : 'Fail', rank: 0 },
-      final: { total: s1Total + s2Total, average: finalAvg, status: finalAvg >= config.passMark ? 'Pass' : 'Fail', rank: 0 }
+      final: { total: (s1Total + s2Total) / 2, average: finalAvg, status: finalAvg >= config.passMark ? 'Pass' : 'Fail', rank: 0 }
     };
     studentSummaries.push(summary);
   });
