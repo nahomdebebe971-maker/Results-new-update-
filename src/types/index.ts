@@ -45,6 +45,7 @@ export interface Grade {
   name: string;
   section: string;
   homeroomTeacher?: string;
+  subjectIds?: string[];
   createdAt: string;
 }
 

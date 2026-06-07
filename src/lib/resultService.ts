@@ -94,7 +94,11 @@ export const publishGradeResults = async (gradeId: string, publish: boolean, con
   const studentSummaries: any[] = [];
 
   students.forEach(student => {
-    const sMarks = marksByStudent[student.studentId] || [];
+    let sMarks = marksByStudent[student.studentId] || [];
+    const gradeSubjectIds = gradeData.subjectIds;
+    if (gradeSubjectIds && gradeSubjectIds.length > 0) {
+      sMarks = sMarks.filter(m => gradeSubjectIds.includes(m.subjectId));
+    }
     const results: any = {};
     const subjectsArray: any[] = [];
     
@@ -227,7 +231,10 @@ export const calculateResultsForGrade = async (gradeName: string, section: strin
     where('section', '==', section)
   );
   const gradeSnaps = await getDocs(qG);
-  const gradeId = !gradeSnaps.empty ? gradeSnaps.docs[0].id : null;
+  const gradeDoc = !gradeSnaps.empty ? gradeSnaps.docs[0] : null;
+  const gradeId = gradeDoc ? gradeDoc.id : null;
+  const gradeData = gradeDoc ? gradeDoc.data() as Grade : null;
+  const gradeSubjectIds = gradeData?.subjectIds;
   const isPublished = gradeId ? (config.publishedGrades || []).includes(gradeId) : false;
 
   const batch = writeBatch(db);
@@ -242,7 +249,10 @@ export const calculateResultsForGrade = async (gradeName: string, section: strin
   const studentSummaries: any[] = [];
 
   students.forEach(student => {
-    const sMarks = marksByStudent[student.studentId] || [];
+    let sMarks = marksByStudent[student.studentId] || [];
+    if (gradeSubjectIds && gradeSubjectIds.length > 0) {
+      sMarks = sMarks.filter(m => gradeSubjectIds.includes(m.subjectId));
+    }
     const results: any = {};
     const subjectsArray: any[] = [];
     

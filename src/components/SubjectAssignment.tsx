@@ -170,32 +170,51 @@ export const SubjectAssignmentManager: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Instructional Subject</label>
-                <select 
-                  required
-                  value={formData.subjectId}
-                  onChange={e => setFormData({ ...formData, subjectId: e.target.value })}
-                  className="w-full p-4 bg-gray-50 dark:bg-gray-850 border border-gray-150 dark:border-gray-800 text-gray-900 dark:text-white rounded-2xl outline-none focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/40 focus:bg-white transition-all font-bold"
-                >
-                  <option value="">Select Subject</option>
-                  {subjects.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Grade & Section</label>
                 <select 
                   required
                   value={formData.gradeId}
-                  onChange={e => setFormData({ ...formData, gradeId: e.target.value })}
+                  onChange={e => {
+                    const gradeId = e.target.value;
+                    const gradeDoc = grades.find(g => g.id === gradeId);
+                    let newSubjectId = formData.subjectId;
+                    if (gradeDoc && gradeDoc.subjectIds && gradeDoc.subjectIds.length > 0) {
+                      if (!gradeDoc.subjectIds.includes(formData.subjectId)) {
+                        newSubjectId = '';
+                      }
+                    }
+                    setFormData({ ...formData, gradeId, subjectId: newSubjectId });
+                  }}
                   className="w-full p-4 bg-gray-50 dark:bg-gray-850 border border-gray-150 dark:border-gray-800 text-gray-900 dark:text-white rounded-2xl outline-none focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/40 focus:bg-white transition-all font-bold"
                 >
                   <option value="">Choose Grade Target</option>
                   {grades.map(g => (
                     <option key={g.id} value={g.id}>Grade {g.name}{g.section}</option>
                   ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Instructional Subject</label>
+                <select 
+                  required
+                  disabled={!formData.gradeId}
+                  value={formData.subjectId}
+                  onChange={e => setFormData({ ...formData, subjectId: e.target.value })}
+                  className="w-full p-4 bg-gray-50 dark:bg-gray-850 border border-gray-150 dark:border-gray-800 text-gray-900 dark:text-white rounded-2xl outline-none focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/40 focus:bg-white transition-all font-bold disabled:opacity-50"
+                >
+                  <option value="">{!formData.gradeId ? "Select Grade first..." : "Select Subject"}</option>
+                  {(() => {
+                    const selectedGradeDoc = grades.find(g => g.id === formData.gradeId);
+                    const filteredSubjects = selectedGradeDoc 
+                      ? (selectedGradeDoc.subjectIds && selectedGradeDoc.subjectIds.length > 0
+                          ? subjects.filter(s => selectedGradeDoc.subjectIds!.includes(s.id))
+                          : subjects)
+                      : subjects;
+                    return filteredSubjects.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ));
+                  })()}
                 </select>
               </div>
 

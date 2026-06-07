@@ -96,7 +96,11 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
 
         // 2. Fetch Subjects
         const subSnap = await getDocs(query(collection(db, 'subjects'), orderBy('name', 'asc')));
-        const subjectsList = subSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject));
+        let subjectsList = subSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject));
+
+        if (grade.subjectIds && grade.subjectIds.length > 0) {
+          subjectsList = subjectsList.filter(s => grade.subjectIds!.includes(s.id));
+        }
 
         // 3. Fetch Marks
         const qM = query(

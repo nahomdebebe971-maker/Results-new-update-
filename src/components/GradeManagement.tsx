@@ -34,10 +34,11 @@ export const GradeManagement: React.FC = () => {
   const { config, updateConfig } = useSchoolConfig();
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [formData, setFormData] = useState({ name: '', section: '', homeroomTeacher: '' });
+  const [formData, setFormData] = useState({ name: '', section: '', homeroomTeacher: '', subjectIds: [] as string[] });
   const [selectedGrade, setSelectedGrade] = useState<Grade | null>(null);
   const [editingGrade, setEditingGrade] = useState<Grade | null>(null);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [systemSubjects, setSystemSubjects] = useState<Subject[]>([]);
   
   // High-performance actions states
   const [actionLoading, setActionLoading] = useState<{[key: string]: boolean}>({});
@@ -60,6 +61,14 @@ export const GradeManagement: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const qS = query(collection(db, 'subjects'), orderBy('name', 'asc'));
+    const unsubscribe = onSnapshot(qS, (snap) => {
+      setSystemSubjects(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Subject)));
+    });
+    return () => unsubscribe();
+  }, []);
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.section) return;
@@ -69,19 +78,23 @@ export const GradeManagement: React.FC = () => {
         await updateDoc(doc(db, 'grades', editingGrade.id), {
           name: formData.name.trim(),
           section: formData.section.trim(),
-          homeroomTeacher: formData.homeroomTeacher
+          homeroomTeacher: formData.homeroomTeacher,
+          subjectIds: formData.subjectIds
         });
         toast.success(`Grade ${formData.name}${formData.section} updated successfully!`);
         setEditingGrade(null);
       } else {
         // Create new grade
         await addDoc(collection(db, 'grades'), {
-          ...formData,
+          name: formData.name.trim(),
+          section: formData.section.trim(),
+          homeroomTeacher: formData.homeroomTeacher,
+          subjectIds: formData.subjectIds,
           createdAt: new Date().toISOString(),
         });
         toast.success(`Grade ${formData.name}${formData.section} created successfully!`);
       }
-      setFormData({ name: '', section: '', homeroomTeacher: '' });
+      setFormData({ name: '', section: '', homeroomTeacher: '', subjectIds: [] });
       setShowAdd(false);
     } catch (err) {
       console.error(err);
@@ -160,10 +173,14 @@ export const GradeManagement: React.FC = () => {
 
       // 2. Fetch Subjects
       const subSnap = await getDocs(query(collection(db, 'subjects'), orderBy('name', 'asc')));
-      const subjectsList = subSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Subject));
+      let subjectsList = subSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Subject));
+
+      if (grade.subjectIds && grade.subjectIds.length > 0) {
+        subjectsList = subjectsList.filter(s => grade.subjectIds!.includes(s.id));
+      }
 
       if (subjectsList.length === 0) {
-        toast.error('No subjects defined in the system.', { id: toastId });
+        toast.error('No subjects assigned to this grade.', { id: toastId });
         return;
       }
 
@@ -253,7 +270,10 @@ export const GradeManagement: React.FC = () => {
           <p className="text-gray-500 font-medium">Define your school classes (e.g. 9A, 10B).</p>
         </div>
         <button 
-          onClick={() => setShowAdd(true)}
+          onClick={() => {
+            setFormData({ name: '', section: '', homeroomTeacher: '', subjectIds: systemSubjects.map(s => s.id) });
+            setShowAdd(true);
+          }}
           className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:scale-105 transition-transform"
         >
           <Plus className="w-5 h-5" /> Add New Grade
@@ -304,13 +324,48 @@ export const GradeManagement: React.FC = () => {
                   ))}
                 </select>
               </div>
+              
+              <div className="md:col-span-2 space-y-3">
+                <label className="text-xs font-black text-gray-400 uppercase tracking-widest block">Select Subjects for this Grade</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {systemSubjects.map(sub => {
+                    const isChecked = formData.subjectIds.includes(sub.id);
+                    return (
+                      <label key={sub.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none ${
+                        isChecked 
+                          ? 'bg-indigo-50 border-indigo-200 text-indigo-900 font-extrabold shadow-sm'
+                          : 'bg-gray-55 border-black/5 text-gray-500 font-medium hover:bg-gray-100 hover:border-gray-200'
+                      }`}>
+                        <input 
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            const newIds = isChecked 
+                              ? formData.subjectIds.filter(id => id !== sub.id)
+                              : [...formData.subjectIds, sub.id];
+                            setFormData({ ...formData, subjectIds: newIds });
+                          }}
+                          className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300 transition-all cursor-pointer"
+                        />
+                        <span className="text-xs truncate">{sub.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {formData.subjectIds.length === 0 && (
+                  <p className="text-rose-500 text-xs font-bold leading-none py-1">
+                     ⚠️ No subjects selected. Please select at least one subject for this grade.
+                  </p>
+                )}
+              </div>
+
               <div className="md:col-span-2 flex gap-4">
                 <button 
                   type="button"
                   onClick={() => {
                     setShowAdd(false);
                     setEditingGrade(null);
-                    setFormData({ name: '', section: '', homeroomTeacher: '' });
+                    setFormData({ name: '', section: '', homeroomTeacher: '', subjectIds: [] });
                   }}
                   className="flex-grow py-4 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all"
                 >
@@ -318,7 +373,8 @@ export const GradeManagement: React.FC = () => {
                 </button>
                 <button 
                   type="submit"
-                  className="flex-grow py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                  disabled={formData.subjectIds.length === 0}
+                  className="flex-grow py-4 bg-indigo-600 disabled:bg-gray-305 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
                 >
                   {editingGrade ? 'Update Grade' : 'Create Grade'}
                 </button>
@@ -371,7 +427,12 @@ export const GradeManagement: React.FC = () => {
                     onClick={(e) => {
                       e.stopPropagation();
                       setEditingGrade(grade);
-                      setFormData({ name: grade.name, section: grade.section, homeroomTeacher: grade.homeroomTeacher || '' });
+                      setFormData({ 
+                        name: grade.name, 
+                        section: grade.section, 
+                        homeroomTeacher: grade.homeroomTeacher || '', 
+                        subjectIds: grade.subjectIds || systemSubjects.map(s => s.id)
+                      });
                       setShowAdd(true);
                     }}
                     className="p-2 text-gray-300 hover:text-indigo-500 rounded-xl hover:bg-indigo-50 transition-all"

@@ -37,6 +37,7 @@ export const TeacherPortal: React.FC = () => {
   const [homeroomAbsent, setHomeroomAbsent] = useState<Record<string, number>>({});
   const [savingHomeroom, setSavingHomeroom] = useState(false);
   const [saveHomeroomSuccess, setSaveHomeroomSuccess] = useState(false);
+  const [grades, setGrades] = useState<Grade[]>([]);
 
   useEffect(() => {
     if (!teacherName) return;
@@ -44,6 +45,7 @@ export const TeacherPortal: React.FC = () => {
     const qGrades = query(collection(db, 'grades'));
     const unsubscribe = onSnapshot(qGrades, async (snap) => {
       const allGrades = snap.docs.map(d => ({ id: d.id, ...d.data() } as Grade));
+      setGrades(allGrades);
       const myHomeroom = allGrades.find(g => 
         g.homeroomTeacher?.trim().toLowerCase() === teacherName.trim().toLowerCase()
       );
@@ -357,47 +359,61 @@ export const TeacherPortal: React.FC = () => {
               </div>
             )}
 
-            {assignments.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-                {assignments.map((as) => (
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    key={as.id}
-                    onClick={() => handleSelectAssignment(as)}
-                    className="bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-xl dark:hover:shadow-indigo-900/10 hover:border-indigo-100 dark:hover:border-indigo-900/40 transition-all text-left flex flex-col group relative overflow-hidden"
-                  >
-                    <div className="flex justify-between items-start mb-6 w-full">
-                      <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center group-hover:bg-indigo-600 dark:group-hover:bg-indigo-500 group-hover:text-white dark:group-hover:text-white transition-colors">
-                        <BookOpen className="w-7 h-7" />
-                      </div>
-                      <div className="bg-gray-50 dark:bg-gray-850 px-4 py-1.5 rounded-full text-xs font-black text-gray-400 dark:text-gray-550 uppercase tracking-widest border border-gray-100 dark:border-gray-800">
-                        Section {as.section}
-                      </div>
-                    </div>
-                    
-                    <h3 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight mb-1">{as.subjectName}</h3>
-                    <p className="text-gray-500 dark:text-gray-400 font-bold">Grade {as.gradeName}{as.section}</p>
+            {(() => {
+              const visibleAssignments = assignments.filter(as => {
+                const grDoc = grades.find(g => g.name === as.gradeName && g.section === as.section);
+                if (grDoc && grDoc.subjectIds && grDoc.subjectIds.length > 0) {
+                  return grDoc.subjectIds.includes(as.subjectId);
+                }
+                return true;
+              });
 
-                    <div className="mt-8 pt-6 border-t border-gray-50 dark:border-gray-850 flex items-center justify-between w-full">
-                      <span className="text-indigo-600 dark:text-indigo-400 font-black text-sm flex items-center gap-2">
-                        Enter Marks <ArrowRight className="w-4 h-4" />
-                      </span>
-                      <Users className="w-5 h-5 text-gray-255 dark:text-gray-750" />
-                    </div>
+              if (visibleAssignments.length === 0) {
+                return (
+                  <div className="text-center py-24 bg-gray-50 dark:bg-gray-850 rounded-[40px] border border-dashed border-gray-200 dark:border-gray-800">
+                    <AlertTriangle className="w-16 h-16 text-gray-300 dark:text-gray-650 mx-auto mb-4" />
+                    <h3 className="text-xl font-bold text-gray-600 dark:text-gray-400">No teaching assignments available</h3>
+                    <p className="text-gray-400 dark:text-gray-500 mt-2 max-w-sm mx-auto font-medium">Please contact the administrator to assign subjects and grades to your account.</p>
+                  </div>
+                );
+              }
 
-                    {/* Gradient hint */}
-                    <div className="absolute -right-12 -bottom-12 w-32 h-32 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </motion.button>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-24 bg-gray-50 rounded-[40px] border-2 border-dashed border-gray-200">
-                <AlertTriangle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-bold text-gray-600">No teaching assignments available</h3>
-                <p className="text-gray-400 mt-2 max-w-sm mx-auto font-medium">Please contact the administrator to assign subjects and grades to your account.</p>
-              </div>
-            )}
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+                  {visibleAssignments.map((as) => (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      key={as.id}
+                      onClick={() => handleSelectAssignment(as)}
+                      className="bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-xl dark:hover:shadow-indigo-900/10 hover:border-indigo-100 dark:hover:border-indigo-900/40 transition-all text-left flex flex-col group relative overflow-hidden"
+                    >
+                      <div className="flex justify-between items-start mb-6 w-full">
+                        <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center group-hover:bg-indigo-600 dark:group-hover:bg-indigo-500 group-hover:text-white dark:group-hover:text-white transition-colors">
+                          <BookOpen className="w-7 h-7" />
+                        </div>
+                        <div className="bg-gray-50 dark:bg-gray-850 px-4 py-1.5 rounded-full text-xs font-black text-gray-400 dark:text-gray-550 uppercase tracking-widest border border-gray-100 dark:border-gray-800">
+                          Section {as.section}
+                        </div>
+                      </div>
+                      
+                      <h3 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight mb-1">{as.subjectName}</h3>
+                      <p className="text-gray-500 dark:text-gray-400 font-bold">Grade {as.gradeName}{as.section}</p>
+
+                      <div className="mt-8 pt-6 border-t border-gray-50 dark:border-gray-850 flex items-center justify-between w-full">
+                        <span className="text-indigo-600 dark:text-indigo-400 font-black text-sm flex items-center gap-2">
+                          Enter Marks <ArrowRight className="w-4 h-4" />
+                        </span>
+                        <Users className="w-5 h-5 text-gray-255 dark:text-gray-750" />
+                      </div>
+
+                      {/* Gradient hint */}
+                      <div className="absolute -right-12 -bottom-12 w-32 h-32 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </motion.button>
+                  ))}
+                </div>
+              );
+            })()}
           </motion.div>
         )}
 
