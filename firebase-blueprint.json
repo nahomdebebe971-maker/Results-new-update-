@@ -64,6 +64,8 @@
         "semester1": { "type": "object" },
         "semester2": { "type": "object" },
         "final": { "type": "object" },
+        "conduct": { "type": "string" },
+        "absent": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["studentId", "name", "grade", "section"]

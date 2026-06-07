@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  collection, getDocs, query, where, orderBy 
+  collection, getDocs, query, where, orderBy, doc, updateDoc, getDoc 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Student, Subject, Mark, Grade, SchoolConfig } from '../types';
 import { 
   X, FileSpreadsheet, Search, Filter, 
-  ArrowUpDown, Loader2, Award, BookOpen, Users
+  ArrowUpDown, Loader2, Award, BookOpen, Users, Sliders, Check
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import * as XLSX from 'xlsx';
+import { toast } from 'react-hot-toast';
 
 interface GradeResultsTableProps {
   grade: Grade;
@@ -24,6 +25,41 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
   const [marks, setMarks] = useState<Mark[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [subTab, setSubTab] = useState<'results' | 'conduct'>('results');
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const updateConductAndAbsent = async (studentId: string, conductVal: string, absentVal: number) => {
+    setSavingId(studentId);
+    try {
+      const studRef = doc(db, 'students', studentId);
+      await updateDoc(studRef, {
+        conduct: conductVal,
+        absent: absentVal
+      });
+
+      setStudents(prev => prev.map(s => {
+        if (s.id === studentId || s.studentId === studentId) {
+          return { ...s, conduct: conductVal, absent: absentVal };
+        }
+        return s;
+      }));
+
+      const pubRef = doc(db, 'publishedResults', studentId);
+      const pubSnap = await getDoc(pubRef);
+      if (pubSnap.exists()) {
+        await updateDoc(pubRef, {
+          conduct: conductVal,
+          absent: absentVal
+        });
+      }
+      toast.success("Saved conduct & attendance");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to save changes");
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -36,7 +72,27 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
           where('section', '==', grade.section)
         );
         const sSnap = await getDocs(qS);
-        const studentsList = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+        const studentsList = sSnap.docs.map(d => {
+          const data = d.data();
+          let needsUpdate = false;
+          const conduct = data.conduct !== undefined ? data.conduct : (needsUpdate = true, 'A');
+          const absent = data.absent !== undefined ? data.absent : (needsUpdate = true, 0);
+          
+          if (needsUpdate) {
+            import('firebase/firestore').then(({ doc, updateDoc }) => {
+              updateDoc(doc(db, 'students', d.id), { conduct, absent }).catch(err => 
+                console.error('Error migrating student:', d.id, err)
+              );
+            });
+          }
+          
+          return {
+            id: d.id,
+            ...data,
+            conduct,
+            absent
+          } as Student;
+        });
 
         // 2. Fetch Subjects
         const subSnap = await getDocs(query(collection(db, 'subjects'), orderBy('name', 'asc')));
@@ -162,6 +218,8 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
       row['Final Avg'] = student.final?.average !== undefined && student.final?.average !== null ? student.final.average.toFixed(1) : 'N/A';
       row['Final Rank'] = student.final?.rank || 'N/A';
       row['Final Status'] = student.final?.status || 'N/A';
+      row['Conduct (Amala)'] = student.conduct || 'A';
+      row['Absent (Hafte)'] = student.absent ?? 0;
 
       return row;
     });
@@ -190,12 +248,25 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
       {/* Header */}
       <div className="bg-gray-900 text-white p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-xl">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center font-black text-xl">
+          <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center font-black text-xl shadow-lg">
             {grade.name}{grade.section}
           </div>
           <div>
-            <h2 className="text-2xl font-black tracking-tight">Grade {grade.name}{grade.section} - Comprehensive Results</h2>
-            <p className="text-indigo-300 text-sm font-medium">Monitoring Dashboard • View Only Mode</p>
+            <h2 className="text-xl font-black tracking-tight">Grade {grade.name}{grade.section} Workspace</h2>
+            <div className="flex gap-4 mt-2">
+              <button 
+                onClick={() => setSubTab('results')}
+                className={`text-xs uppercase tracking-wider font-bold pb-1 border-b-2 transition-all ${subTab === 'results' ? 'text-white border-indigo-500' : 'text-indigo-300 border-transparent hover:text-white'}`}
+              >
+                Comprehensive Results
+              </button>
+              <button 
+                onClick={() => setSubTab('conduct')}
+                className={`text-xs uppercase tracking-wider font-bold pb-1 border-b-2 transition-all ${subTab === 'conduct' ? 'text-white border-indigo-500' : 'text-indigo-300 border-transparent hover:text-white'}`}
+              >
+                Conduct & Attendance Management
+              </button>
+            </div>
           </div>
         </div>
         
@@ -210,12 +281,14 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
               className="pl-10 pr-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 w-full md:w-64"
             />
           </div>
-          <button 
-            onClick={exportToExcel}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-900/20"
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Export Excel
-          </button>
+          {subTab === 'results' && (
+            <button 
+              onClick={exportToExcel}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-950/20"
+            >
+              <FileSpreadsheet className="w-4 h-4" /> Export Excel
+            </button>
+          )}
           <button 
             onClick={onClose}
             className="p-2.5 bg-white/10 hover:bg-red-500 rounded-xl transition-all"
@@ -226,147 +299,240 @@ export const GradeResultsTable: React.FC<GradeResultsTableProps> = ({ grade, con
       </div>
 
       {/* Main Table Container */}
-      <div className="flex-grow overflow-auto p-4 md:p-8">
-        <div className="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden min-w-max">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              {/* Complex Header */}
-              <tr className="bg-gray-900 border-b border-gray-800 text-white">
-                <th colSpan={4} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center border-r border-gray-800">Student Profile</th>
-                {subjects.map(sub => (
-                  <th key={sub.id} colSpan={3} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center border-r border-gray-800 bg-gray-800/50">
-                    {sub.name}
-                  </th>
-                ))}
-                <th colSpan={4} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center border-r border-gray-800 bg-indigo-900/30">Semester 1</th>
-                <th colSpan={4} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center border-r border-gray-800 bg-purple-900/30">Semester 2</th>
-                <th colSpan={4} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center bg-emerald-900/30">Final Result</th>
-              </tr>
-              <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-black text-gray-500 uppercase tracking-widest sticky top-0 z-10">
-                <th onClick={() => handleSort('id')} className="px-6 py-3 border-r border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center gap-2">ID <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-                <th onClick={() => handleSort('name')} className="px-6 py-3 border-r border-gray-100 min-w-[200px] cursor-pointer hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center gap-2">Student Name <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-                <th className="px-6 py-3 border-r border-gray-100">Sex</th>
-                <th className="px-6 py-3 border-r border-gray-100">Age</th>
-                
-                {subjects.map(sub => (
-                  <React.Fragment key={sub.id}>
-                    <th className="px-4 py-3 border-r border-gray-100 text-center">S1</th>
-                    <th className="px-4 py-3 border-r border-gray-100 text-center">S2</th>
-                    <th className="px-4 py-3 border-r border-gray-100 text-center bg-gray-100/50">Avg</th>
-                  </React.Fragment>
-                ))}
-
-                <th className="px-4 py-3 border-r border-gray-100 text-center">Total</th>
-                <th className="px-4 py-3 border-r border-gray-100 text-center">Avg</th>
-                <th className="px-4 py-3 border-r border-gray-100 text-center">Rank</th>
-                <th className="px-4 py-3 border-r border-gray-100 text-center">Status</th>
-
-                <th className="px-4 py-3 border-r border-gray-100 text-center">Total</th>
-                <th className="px-4 py-3 border-r border-gray-100 text-center">Avg</th>
-                <th className="px-4 py-3 border-r border-gray-100 text-center">Rank</th>
-                <th className="px-4 py-3 border-r border-gray-100 text-center">Status</th>
-
-                <th className="px-4 py-3 border-r border-gray-100 text-center">Total</th>
-                <th onClick={() => handleSort('finalAvg')} className="px-4 py-3 border-r border-gray-100 text-center cursor-pointer hover:bg-emerald-100 transition-colors">
-                  <div className="flex items-center justify-center gap-1">Avg <ArrowUpDown className="w-2 h-2" /></div>
-                </th>
-                <th onClick={() => handleSort('finalRank')} className="px-4 py-3 border-r border-gray-100 text-center cursor-pointer hover:bg-emerald-100 transition-colors">
-                  <div className="flex items-center justify-center gap-1">Rank <ArrowUpDown className="w-2 h-2" /></div>
-                </th>
-                <th className="px-4 py-3 text-center">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {sortedStudents.map(student => (
-                <tr key={student.id} className="hover:bg-indigo-50/30 transition-colors group">
-                  <td className="px-6 py-4 font-mono text-xs text-gray-400 border-r border-gray-50">{student.studentId}</td>
-                  <td className="px-6 py-4 font-bold text-gray-900 border-r border-gray-50 whitespace-nowrap">{student.name}</td>
-                  <td className="px-6 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-500">{student.sex}</td>
-                  <td className="px-6 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-500">{student.age}</td>
-
-                  {subjects.map(sub => {
-                    const m = getMark(student.studentId, sub);
-                    const avg = m ? (m.semester1 + m.semester2) / 2 : null;
-                    return (
-                      <React.Fragment key={sub.id}>
-                        <td className={`px-4 py-4 text-center border-r border-gray-50 text-xs font-bold ${!m ? 'text-amber-400 italic' : 'text-gray-900'}`}>
-                          {formatMark(m?.semester1)}
-                        </td>
-                        <td className={`px-4 py-4 text-center border-r border-gray-50 text-xs font-bold ${!m ? 'text-amber-400 italic' : 'text-gray-900'}`}>
-                          {formatMark(m?.semester2)}
-                        </td>
-                        <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-indigo-600 bg-indigo-50/10">
-                          {avg !== null ? avg.toFixed(1) : '—'}
-                        </td>
-                      </React.Fragment>
-                    );
-                  })}
-
-                  {/* S1 Summary */}
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-700 bg-indigo-50/5">
-                    {formatSummaryValue(student.semester1?.total)}
-                  </td>
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-indigo-600 bg-indigo-50/5">
-                    {formatSummaryValue(student.semester1?.average, true)}
-                  </td>
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-amber-600 bg-indigo-50/5">
-                    {student.semester1?.rank || '—'}
-                  </td>
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black bg-indigo-50/5">
-                    <span className={student.semester1?.status === 'Pass' ? 'text-emerald-500' : 'text-rose-500'}>
-                      {student.semester1?.status || '—'}
-                    </span>
-                  </td>
-
-                  {/* S2 Summary */}
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-700 bg-purple-50/5">
-                    {formatSummaryValue(student.semester2?.total)}
-                  </td>
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-purple-600 bg-purple-50/5">
-                    {formatSummaryValue(student.semester2?.average, true)}
-                  </td>
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-amber-600 bg-purple-50/5">
-                    {student.semester2?.rank || '—'}
-                  </td>
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black bg-purple-50/5">
-                    <span className={student.semester2?.status === 'Pass' ? 'text-emerald-500' : 'text-rose-500'}>
-                      {student.semester2?.status || '—'}
-                    </span>
-                  </td>
-
-                  {/* Final Summary */}
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-700 bg-emerald-50/5">
-                    {formatSummaryValue(student.final?.total)}
-                  </td>
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-emerald-600 bg-emerald-50/5">
-                    {formatSummaryValue(student.final?.average, true)}
-                  </td>
-                  <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-amber-600 bg-emerald-50/5">
-                    {student.final?.rank || '—'}
-                  </td>
-                  <td className="px-4 py-4 text-center text-xs font-black bg-emerald-50/5">
-                    <span className={`px-2 py-1 rounded text-[10px] uppercase font-black ${
-                      student.final?.status === 'Pass' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                    }`}>
-                      {student.final?.status || '—'}
-                    </span>
-                  </td>
+      {subTab === 'results' ? (
+        <div className="flex-grow overflow-auto p-4 md:p-8">
+          <div className="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden min-w-max">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                {/* Complex Header */}
+                <tr className="bg-gray-900 border-b border-gray-800 text-white">
+                  <th colSpan={4} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center border-r border-gray-800">Student Profile</th>
+                  {subjects.map(sub => (
+                    <th key={sub.id} colSpan={3} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center border-r border-gray-800 bg-gray-800/50">
+                      {sub.name}
+                    </th>
+                  ))}
+                  <th colSpan={4} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center border-r border-gray-800 bg-indigo-900/30">Semester 1</th>
+                  <th colSpan={4} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center border-r border-gray-800 bg-purple-900/30">Semester 2</th>
+                  <th colSpan={6} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center bg-emerald-900/30">Final & Conduct/Attendance</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          {filteredStudents.length === 0 && (
-            <div className="py-20 text-center">
-              <Users className="w-16 h-16 text-gray-100 mx-auto mb-4" />
-              <p className="text-gray-400 font-bold uppercase tracking-widest text-sm">No students matched your search</p>
-            </div>
-          )}
+                <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-black text-gray-500 uppercase tracking-widest sticky top-0 z-10">
+                  <th onClick={() => handleSort('id')} className="px-6 py-3 border-r border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors">
+                    <div className="flex items-center gap-2">ID <ArrowUpDown className="w-3 h-3" /></div>
+                  </th>
+                  <th onClick={() => handleSort('name')} className="px-6 py-3 border-r border-gray-100 min-w-[200px] cursor-pointer hover:bg-gray-100 transition-colors">
+                    <div className="flex items-center gap-2">Student Name <ArrowUpDown className="w-3 h-3" /></div>
+                  </th>
+                  <th className="px-6 py-3 border-r border-gray-100">Sex</th>
+                  <th className="px-6 py-3 border-r border-gray-100">Age</th>
+                  
+                  {subjects.map(sub => (
+                    <React.Fragment key={sub.id}>
+                      <th className="px-4 py-3 border-r border-gray-100 text-center">S1</th>
+                      <th className="px-4 py-3 border-r border-gray-100 text-center">S2</th>
+                      <th className="px-4 py-3 border-r border-gray-100 text-center bg-gray-100/50">Avg</th>
+                    </React.Fragment>
+                  ))}
+
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Total</th>
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Avg</th>
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Rank</th>
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Status</th>
+
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Total</th>
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Avg</th>
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Rank</th>
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Status</th>
+
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Total</th>
+                  <th onClick={() => handleSort('finalAvg')} className="px-4 py-3 border-r border-gray-100 text-center cursor-pointer hover:bg-emerald-100 transition-colors">
+                    <div className="flex items-center justify-center gap-1">Avg <ArrowUpDown className="w-2 h-2" /></div>
+                  </th>
+                  <th onClick={() => handleSort('finalRank')} className="px-4 py-3 border-r border-gray-100 text-center cursor-pointer hover:bg-emerald-100 transition-colors">
+                    <div className="flex items-center justify-center gap-1">Rank <ArrowUpDown className="w-2 h-2" /></div>
+                  </th>
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Status</th>
+                  <th className="px-4 py-3 border-r border-gray-100 text-center">Conduct (Amala)</th>
+                  <th className="px-4 py-3 text-center">Absent (Hafte)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {sortedStudents.map(student => (
+                  <tr key={student.id} className="hover:bg-indigo-50/30 transition-colors group">
+                    <td className="px-6 py-4 font-mono text-xs text-gray-400 border-r border-gray-50">{student.studentId}</td>
+                    <td className="px-6 py-4 font-bold text-gray-900 border-r border-gray-50 whitespace-nowrap">{student.name}</td>
+                    <td className="px-6 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-500">{student.sex}</td>
+                    <td className="px-6 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-500">{student.age}</td>
+
+                    {subjects.map(sub => {
+                      const m = getMark(student.studentId, sub);
+                      const avg = m ? (m.semester1 + m.semester2) / 2 : null;
+                      return (
+                        <React.Fragment key={sub.id}>
+                          <td className={`px-4 py-4 text-center border-r border-gray-50 text-xs font-bold ${!m ? 'text-amber-400 italic' : 'text-gray-900'}`}>
+                            {formatMark(m?.semester1)}
+                          </td>
+                          <td className={`px-4 py-4 text-center border-r border-gray-50 text-xs font-bold ${!m ? 'text-amber-400 italic' : 'text-gray-900'}`}>
+                            {formatMark(m?.semester2)}
+                          </td>
+                          <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-indigo-600 bg-indigo-50/10">
+                            {avg !== null ? avg.toFixed(1) : '—'}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })}
+
+                    {/* S1 Summary */}
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-700 bg-indigo-50/5">
+                      {formatSummaryValue(student.semester1?.total)}
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-indigo-600 bg-indigo-50/5">
+                      {formatSummaryValue(student.semester1?.average, true)}
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-amber-600 bg-indigo-50/5">
+                      {student.semester1?.rank || '—'}
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black bg-indigo-50/5">
+                      <span className={student.semester1?.status === 'Pass' ? 'text-emerald-500' : 'text-rose-500'}>
+                        {student.semester1?.status || '—'}
+                      </span>
+                    </td>
+
+                    {/* S2 Summary */}
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-700 bg-purple-50/5">
+                      {formatSummaryValue(student.semester2?.total)}
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-purple-600 bg-purple-50/5">
+                      {formatSummaryValue(student.semester2?.average, true)}
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-amber-600 bg-purple-50/5">
+                      {student.semester2?.rank || '—'}
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black bg-purple-50/5">
+                      <span className={student.semester2?.status === 'Pass' ? 'text-emerald-500' : 'text-rose-500'}>
+                        {student.semester2?.status || '—'}
+                      </span>
+                    </td>
+
+                    {/* Final Summary */}
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-700 bg-emerald-50/5">
+                      {formatSummaryValue(student.final?.total)}
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-emerald-600 bg-emerald-50/5">
+                      {formatSummaryValue(student.final?.average, true)}
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black text-amber-600 bg-emerald-50/5">
+                      {student.final?.rank || '—'}
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-black bg-emerald-50/5">
+                      <span className={`px-2 py-1 rounded text-[10px] uppercase font-black ${
+                        student.final?.status === 'Pass' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                      }`}>
+                        {student.final?.status || '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-center border-r border-gray-50 text-xs font-bold text-gray-700 bg-emerald-50/5">
+                      {student.conduct || 'A'}
+                    </td>
+                    <td className="px-4 py-4 text-center text-xs font-bold text-gray-700 bg-emerald-50/5">
+                      {student.absent ?? 0}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredStudents.length === 0 && (
+              <div className="py-20 text-center">
+                <Users className="w-16 h-16 text-gray-100 mx-auto mb-4" />
+                <p className="text-gray-400 font-bold uppercase tracking-widest text-sm">No students matched your search</p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-grow overflow-auto p-4 md:p-8">
+          <div className="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden max-w-4xl mx-auto">
+            <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div>
+                <h3 className="text-lg font-black text-gray-900">Conduct & Attendance Registry</h3>
+                <p className="text-xs text-gray-500 font-medium">Manage student behavior marks and class attendance metrics.</p>
+              </div>
+              <span className="text-[10px] bg-indigo-50 border border-indigo-100/50 text-indigo-700 font-black px-3 py-1.5 rounded-lg uppercase tracking-wider whitespace-nowrap">
+                Section {grade.name}{grade.section} • Active Session
+              </span>
+            </div>
+            
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="bg-gray-100/70 border-b border-gray-200 text-xs font-black text-gray-500 uppercase tracking-widest text-[10px]">
+                  <th className="px-6 py-4 text-center w-20">Roll No</th>
+                  <th className="px-6 py-4 w-32">Student ID</th>
+                  <th className="px-6 py-4">Student Name</th>
+                  <th className="px-6 py-4 text-center w-48 animate-pulse">Conduct (Amala)</th>
+                  <th className="px-6 py-4 text-center w-48">Absent (Hafte)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {sortedStudents.map((student, idx) => {
+                  const currentConduct = student.conduct || 'A';
+                  const currentAbsent = student.absent ?? 0;
+                  const isSaving = savingId === student.id || savingId === student.studentId;
+
+                  return (
+                    <tr key={student.id} className="hover:bg-indigo-50/10 transition-colors">
+                      <td className="px-6 py-4 font-mono font-bold text-center text-gray-500 bg-gray-50/20">{idx + 1}</td>
+                      <td className="px-6 py-4 font-mono font-semibold text-xs text-indigo-600">{student.studentId}</td>
+                      <td className="px-6 py-4 font-black text-gray-900">{student.name}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-center">
+                          <select
+                            value={currentConduct}
+                            disabled={isSaving}
+                            onChange={(e) => updateConductAndAbsent(student.studentId, e.target.value, currentAbsent)}
+                            className="bg-gray-50 border border-gray-200 text-gray-800 text-xs rounded-xl focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 p-2 font-bold outline-none transition-all w-28 text-center cursor-pointer"
+                          >
+                            <option value="A">A</option>
+                            <option value="B">B</option>
+                            <option value="C">C</option>
+                            <option value="D">D</option>
+                            <option value="F">F</option>
+                          </select>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={currentAbsent}
+                            disabled={isSaving}
+                            onChange={(e) => {
+                              const val = Math.max(0, parseInt(e.target.value) || 0);
+                              updateConductAndAbsent(student.studentId, currentConduct, val);
+                            }}
+                            className="bg-gray-50 border border-gray-200 text-gray-800 text-xs rounded-xl focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 p-2 font-bold outline-none transition-all w-20 text-center font-mono"
+                          />
+                          {isSaving && (
+                            <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            
+            {filteredStudents.length === 0 && (
+              <div className="py-20 text-center">
+                <Users className="w-16 h-16 text-gray-100 mx-auto mb-4" />
+                <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No students matched your search</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Footer Info */}
       <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase tracking-widest">

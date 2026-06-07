@@ -326,10 +326,28 @@ export const StudentPortal: React.FC = () => {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                 <ResultCard title="Semester 01 Summary" data={student.semester1} accent="indigo" />
                 <ResultCard title="Semester 02 Summary" data={student.semester2} accent="blue" />
                 <ResultCard title="Final Academic Status" data={student.final} accent="emerald" />
+                <div className="p-6 rounded-3xl border border-indigo-100 dark:border-indigo-950 bg-indigo-50/10 dark:bg-indigo-950/15 shadow-sm transition-all relative overflow-hidden group">
+                  <h3 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase mb-4 tracking-widest">Conduct & Attendance</h3>
+                  <div className="space-y-4 relative z-10">
+                    <div className="flex justify-between items-baseline">
+                      <div>
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500 font-extrabold uppercase tracking-wider">Conduct (Amala)</p>
+                        <span className="text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tighter font-mono">{student.conduct || 'A'}</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500 font-extrabold uppercase tracking-wider">Absent (Hafte)</p>
+                        <span className="text-3xl font-black text-rose-500 dark:text-rose-400 tracking-tighter font-mono">{student.absent ?? 0}</span>
+                      </div>
+                    </div>
+                    <div className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase pt-2 border-t border-gray-100/50 dark:border-gray-800 leading-tight">
+                      Mark: {student.conduct || 'A'} • Attendance: {student.absent ?? 0} days missed
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-3xl overflow-hidden overflow-x-auto shadow-sm">

@@ -72,7 +72,27 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
         where('section', '==', gSec)
       );
       const sSnap = await getDocs(q);
-      const fetchedStudents = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+      const fetchedStudents = sSnap.docs.map(d => {
+        const data = d.data();
+        let needsUpdate = false;
+        const conduct = data.conduct !== undefined ? data.conduct : (needsUpdate = true, 'A');
+        const absent = data.absent !== undefined ? data.absent : (needsUpdate = true, 0);
+        
+        if (needsUpdate) {
+          import('firebase/firestore').then(({ doc, updateDoc }) => {
+            updateDoc(doc(db, 'students', d.id), { conduct, absent }).catch(err => 
+              console.error('Error migrating student:', d.id, err)
+            );
+          });
+        }
+        
+        return {
+          id: d.id,
+          ...data,
+          conduct,
+          absent
+        } as Student;
+      });
       
       // Sort alphabetically A-Z by full student name
       fetchedStudents.sort((a, b) => {
@@ -130,8 +150,8 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
         const s2Status = getTranslatedStatus(s, 'sem2', subjects, passMark);
         const finalStatus = getTranslatedStatus(s, 'final', subjects, passMark);
 
-        // Term 1 Row (using clean Oromo term descriptions '1ffaa', '2ffaa', 'Ave')
-        const term1Row = [
+        // Term 1 Row (using clean Oromo term descriptions '1ffaa2ffaaAve')
+        const term1Row: any[] = [
           { content: actualIdx.toString(), rowSpan: 3, styles: { valign: 'middle', halign: 'center' } },
           { content: s.name, rowSpan: 3, styles: { valign: 'middle', fontStyle: 'bold' } },
           { content: isMaleGender(s.sex) ? 'Dhiira' : 'Dubartii', rowSpan: 3, styles: { valign: 'middle', halign: 'center' } },
@@ -156,7 +176,9 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
           s.semester1?.total.toString() || '0',
           s.semester1?.average?.toFixed(1) || '0',
           s.semester1?.rank.toString() || '0',
-          s1Status
+          s1Status,
+          { content: s.conduct || 'A', rowSpan: 3, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } },
+          { content: (s.absent ?? 0).toString(), rowSpan: 3, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }
         );
 
         term2Row.push(
@@ -185,10 +207,10 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
           { content: 'UMRII\n(AGE)', rowSpan: 2, styles: { halign: 'center', valign: 'middle' } },
           { content: 'SEEM\n(TERM)', rowSpan: 2, styles: { halign: 'center', valign: 'middle' } },
           { content: 'GOSA BARNOOTAA (SUBJECT COURSES)', colSpan: subjects.length, styles: { halign: 'center' } },
-          { content: 'WALIIGALA BARNOOTAA (ACADEMIC RESULTS SUMMARY)', colSpan: 4, styles: { halign: 'center' } }
+          { content: 'WALIIGALA BARNOOTAA (ACADEMIC RESULTS SUMMARY)', colSpan: 6, styles: { halign: 'center' } }
         ], [
           ...subjects.map(s => ({ content: s.name.toUpperCase().slice(0, 3), styles: { halign: 'center', fontSize: 6.8 } })),
-          'IDA', 'AVE', 'SAD', 'G/H'
+          'IDA', 'AVE', 'SAD', 'G/H', 'AMALA', 'HAFTE'
         ]],
         body: tableData,
         theme: 'grid',
@@ -520,8 +542,8 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
           worksheet.getCell(sr + 2, summaryStartCol + 3).value = fStat;
           worksheet.getCell(sr + 2, summaryStartCol + 3).font = { name: 'Arial', size: 9, bold: true };
           
-          worksheet.getCell(sr, summaryStartCol + 4).value = '';
-          worksheet.getCell(sr, summaryStartCol + 5).value = '';
+          worksheet.getCell(sr, summaryStartCol + 4).value = s.conduct || 'A';
+          worksheet.getCell(sr, summaryStartCol + 5).value = s.absent !== undefined ? `${s.absent} Guyyaa` : '0 Guyyaa';
         } else {
           worksheet.getCell(sr, 1).value = '';
           worksheet.getCell(sr, 2).value = '';
@@ -760,7 +782,9 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                           <th rowSpan={2} className="p-3 border-r border-gray-200 text-center font-bold uppercase text-gray-400 w-24">Ida (Tot)</th>
                           <th rowSpan={2} className="p-3 border-r border-gray-200 text-center font-bold uppercase text-gray-400 w-24">Ave</th>
                           <th rowSpan={2} className="p-3 border-r border-gray-200 text-center font-bold uppercase text-gray-400 w-16">Sad (Rnk)</th>
-                          <th rowSpan={2} className="p-3 text-center font-bold uppercase text-gray-400 w-32">G/H (Sts)</th>
+                          <th rowSpan={2} className="p-3 border-r border-gray-200 text-center font-bold uppercase text-gray-400 w-32">G/H (Sts)</th>
+                          <th rowSpan={2} className="p-3 border-r border-gray-200 text-center font-bold uppercase text-gray-400 w-24">Conduct (Amala)</th>
+                          <th rowSpan={2} className="p-3 text-center font-bold uppercase text-gray-400 w-24">Absent (Hafte)</th>
                         </tr>
                         <tr className="bg-gray-50 border-b border-gray-200">
                           {subjects.map(s => (
@@ -797,7 +821,9 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester1?.total}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester1?.average?.toFixed(1) ?? '0.0'}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold bg-indigo-50/10 text-indigo-700">#{s.semester1?.rank}</td>
-                                <td className={`p-2 text-center text-[11px] ${statColor(s1Stat)}`}>{s1Stat}</td>
+                                <td className={`p-2 border-r border-gray-200 text-center text-[11px] ${statColor(s1Stat)}`}>{s1Stat}</td>
+                                <td rowSpan={3} className="p-3 border-r border-gray-200 text-center font-bold bg-gray-50/10 text-gray-800">{s.conduct || 'A'}</td>
+                                <td rowSpan={3} className="p-3 text-center font-mono font-bold bg-gray-50/10 text-gray-800">{s.absent ?? 0}</td>
                               </tr>
                               <tr className="hover:bg-gray-50/50">
                                 <td className="p-2 border-r border-gray-200 text-center text-[10px] font-black text-gray-400 uppercase bg-gray-50/5">2ffaa</td>
@@ -809,7 +835,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester2?.total}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold">{s.semester2?.average?.toFixed(1) ?? '0.0'}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold bg-indigo-50/10 text-indigo-700">#{s.semester2?.rank}</td>
-                                <td className={`p-2 text-center text-[11px] ${statColor(s2Stat)}`}>{s2Stat}</td>
+                                <td className={`p-2 border-r border-gray-200 text-center text-[11px] ${statColor(s2Stat)}`}>{s2Stat}</td>
                               </tr>
                               <tr className="bg-gray-50/30 hover:bg-gray-50/50">
                                 <td className="p-2 border-r border-gray-200 text-center text-[10px] font-black text-gray-800 uppercase bg-gray-100/30">Ave</td>
@@ -821,7 +847,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 text-gray-900">{s.final?.total}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 text-gray-900">{s.final?.average?.toFixed(1) ?? '0.0'}</td>
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-black border-t border-gray-100 bg-indigo-50/30 text-indigo-900">#{s.final?.rank}</td>
-                                <td className={`p-2 text-center text-[11px] font-black border-t border-gray-100 ${statColor(finalStat)}`}>{finalStat}</td>
+                                <td className={`p-2 border-r border-gray-200 text-center text-[11px] font-black border-t border-gray-100 ${statColor(finalStat)}`}>{finalStat}</td>
                               </tr>
                             </React.Fragment>
                           );

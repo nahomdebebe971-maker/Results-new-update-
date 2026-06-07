@@ -94,6 +94,8 @@ export interface Student {
   semester1?: SemesterSummary;
   semester2?: SemesterSummary;
   final?: SemesterSummary;
+  conduct?: string;
+  absent?: number;
   createdAt: string;
 }
 

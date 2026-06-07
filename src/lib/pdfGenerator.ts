@@ -385,6 +385,13 @@ export const generateStudentTranscript = async (student: Student, config: School
       `${student.final?.average.toFixed(1)}%` || '0.0%',
       student.final?.rank?.toString() || 'N/A',
       getFinalStatus()
+    ],
+    [
+      'Ilaalcha Amalaa & Hafte (Conduct & Attendance)',
+      '—',
+      `Amala (Conduct): ${student.conduct || 'A'}`,
+      '—',
+      `Hafte (Absent): ${student.absent ?? 0} Guyyaa (Days)`
     ]
   ];
 
