@@ -327,7 +327,7 @@ export const generateRosterExcel = async (students: Student[], subjects: Subject
 
     // Academic Summaries Grouped Header
     const summaryStartCol = subjectsEndCol + 1;
-    worksheet.mergeCells(r + 3, summaryStartCol, r + 3, totalColumns);
+    worksheet.mergeCells(r + 3, summaryStartCol, r + 3, summaryStartCol + 3);
     worksheet.getCell(r + 3, summaryStartCol).value = 'WALIIGALA BARNOOTAA (ACADEMIC RESULTS SUMMARY)';
 
     const summaryLabels = ['IDA (TOT)', 'AVE (AVG)', 'SAD (RNK)', 'G/H (ST)', 'AMALA (CON)', 'HAFTE (ABS)'];

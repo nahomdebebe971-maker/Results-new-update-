@@ -43,16 +43,15 @@ export const AdminPortal: React.FC = () => {
   }, []);
 
   const tabs = [
-    { id: 'dashboard', label: 'Overview', icon: PieChart },
+    { id: 'dashboard', label: 'Dashboard', icon: PieChart },
     { id: 'teachers', label: 'Teachers', icon: Users },
     { id: 'students', label: 'Students', icon: GraduationCap },
-    { id: 'grades', label: 'Academic Structure', icon: UsersRound },
-    { id: 'subjects', label: 'Curriculum', icon: BookOpen },
-    { id: 'assignments', label: 'Teacher Assignments', icon: Users },
-    { id: 'analytics', label: 'Student Rankings', icon: Award },
-    { id: 'insights', label: 'Decision Insights', icon: TrendingUp },
-    { id: 'reports', label: 'Transcripts', icon: FileDown },
-    { id: 'settings', label: 'Configuration', icon: Settings },
+    { id: 'grades', label: 'Grades', icon: UsersRound },
+    { id: 'subjects', label: 'Subjects', icon: BookOpen },
+    { id: 'assignments', label: 'Assignments', icon: Users },
+    { id: 'analytics', label: 'Analytics', icon: Award },
+    { id: 'reports', label: 'Exports', icon: FileDown },
+    { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   const handleTabChange = (tabId: string) => {
@@ -258,7 +257,7 @@ const AdminDashboard = ({
             onClick={() => setActiveTab('reports')}
             className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-xl shadow-indigo-900/50"
           >
-            Generate Transcripts
+            Manage Academic Exports
           </button>
         </div>
       </div>

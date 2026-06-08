@@ -214,6 +214,20 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     computeAvgStatOnDemand();
   }, [avgGrade, avgSection, avgSubject]);
 
+  // Keep avgSubject always synchronized with assigned subjects of the selected grade/section
+  useEffect(() => {
+    if (!avgGrade || !avgSection || masterGrades.length === 0 || masterSubjects.length === 0) return;
+    const gr = masterGrades.find(g => g.name === avgGrade && g.section === avgSection);
+    const filteredSubs = gr && gr.subjectIds && gr.subjectIds.length > 0
+      ? masterSubjects.filter(sub => gr.subjectIds!.includes(sub.id))
+      : masterSubjects;
+    if (filteredSubs.length > 0) {
+      if (!filteredSubs.some(sub => sub.id === avgSubject)) {
+        setAvgSubject(filteredSubs[0].id);
+      }
+    }
+  }, [avgGrade, avgSection, masterGrades, masterSubjects, avgSubject]);
+
   // Recalculates analytical aggregates and saves to Cloud Storage/Firestore
   const handleRecalculate = async (silent = false) => {
     if (!silent) setSyncing(true);
@@ -497,7 +511,12 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     };
     matrixRows.push(heading);
 
-    masterSubjects.forEach(sub => {
+    const matchedGrade = masterGrades.find(g => g.name === gradeSel && g.section === sectionSel);
+    const assignedSubjects = matchedGrade && matchedGrade.subjectIds && matchedGrade.subjectIds.length > 0
+      ? masterSubjects.filter(sub => matchedGrade.subjectIds!.includes(sub.id))
+      : masterSubjects;
+
+    assignedSubjects.forEach(sub => {
       const subMarks = classMarks.filter(m => m.subjectId === sub.id);
       
       const s1Stats = getTermStats(subMarks, 'S1');
@@ -563,7 +582,12 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     secondRowHeader.push('Male', 'Female', 'Total');
 
     const bodyRows: any[] = [];
-    masterSubjects.forEach(sub => {
+    const matchedGrade = masterGrades.find(g => g.name === gradeSel && g.section === sectionSel);
+    const assignedSubjects = matchedGrade && matchedGrade.subjectIds && matchedGrade.subjectIds.length > 0
+      ? masterSubjects.filter(sub => matchedGrade.subjectIds!.includes(sub.id))
+      : masterSubjects;
+
+    assignedSubjects.forEach(sub => {
       const subMarks = classMarks.filter(m => m.subjectId === sub.id);
       
       const s1Stats = getTermStats(subMarks, 'S1');
@@ -1307,49 +1331,55 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {masterSubjects.map(sub => {
-                      const subMarks = classMarks.filter(m => m.subjectId === sub.id);
-                      
-                      const s1Stats = getTermStats(subMarks, 'S1');
-                      const s2Stats = getTermStats(subMarks, 'S2');
-                      const avgStats = getTermStats(subMarks, 'Avg');
+                    {(() => {
+                      const matchedGrade = masterGrades.find(g => g.name === selectedSubGrade && g.section === selectedSubSection);
+                      const filteredSubjects = matchedGrade && matchedGrade.subjectIds && matchedGrade.subjectIds.length > 0
+                        ? masterSubjects.filter(sub => matchedGrade.subjectIds!.includes(sub.id))
+                        : masterSubjects;
+                      return filteredSubjects.map(sub => {
+                        const subMarks = classMarks.filter(m => m.subjectId === sub.id);
+                        
+                        const s1Stats = getTermStats(subMarks, 'S1');
+                        const s2Stats = getTermStats(subMarks, 'S2');
+                        const avgStats = getTermStats(subMarks, 'Avg');
 
-                      const terms = [
-                        { label: 'S1 (Seem 1)', stats: s1Stats },
-                        { label: 'S2 (Seem 2)', stats: s2Stats },
-                        { label: 'Avg (Waliigala)', stats: avgStats }
-                      ];
+                        const terms = [
+                          { label: 'S1 (Seem 1)', stats: s1Stats },
+                          { label: 'S2 (Seem 2)', stats: s2Stats },
+                          { label: 'Avg (Waliigala)', stats: avgStats }
+                        ];
 
-                      return (
-                        <React.Fragment key={sub.id}>
-                          {terms.map((t, tIdx) => (
-                            <tr key={t.label} className="hover:bg-gray-50 transition-colors border-b last:border-b-2">
-                              {tIdx === 0 && (
-                                <td className="px-4 py-3 text-left font-black border-r text-gray-900 bg-gray-50/50 align-middle" rowSpan={3}>
-                                  {sub.name}
+                        return (
+                          <React.Fragment key={sub.id}>
+                            {terms.map((t, tIdx) => (
+                              <tr key={t.label} className="hover:bg-gray-50 transition-colors border-b last:border-b-2">
+                                {tIdx === 0 && (
+                                  <td className="px-4 py-3 text-left font-black border-r text-gray-900 bg-gray-50/50 align-middle" rowSpan={3}>
+                                    {sub.name}
+                                  </td>
+                                )}
+                                <td className="px-2 py-3 text-center border-r text-gray-600 font-bold bg-indigo-50/10 whitespace-nowrap">
+                                  {t.label}
                                 </td>
-                              )}
-                              <td className="px-2 py-3 text-center border-r text-gray-600 font-bold bg-indigo-50/10 whitespace-nowrap">
-                                {t.label}
-                              </td>
-                              {customRanges.map((range, rIdx) => {
-                                const rc = t.stats.rangesCount[rIdx];
-                                return (
-                                  <React.Fragment key={rIdx}>
-                                    <td className="px-2 py-3 text-gray-500 border-r text-[11px]">{rc.male}</td>
-                                    <td className="px-2 py-3 text-gray-500 border-r text-[11px]">{rc.female}</td>
-                                    <td className="px-2 py-3 font-extrabold text-gray-900 border-r bg-gray-50/30 text-[11px]">{rc.total}</td>
-                                  </React.Fragment>
-                                );
-                              })}
-                              <td className="px-2 py-3 border-r font-bold text-gray-600 text-[11px]">{t.stats.maleAvg !== null ? t.stats.maleAvg.toFixed(1) : '–'}</td>
-                              <td className="px-2 py-3 border-r font-bold text-gray-600 text-[11px]">{t.stats.femaleAvg !== null ? t.stats.femaleAvg.toFixed(1) : '–'}</td>
-                              <td className="px-2 py-3 font-extrabold text-indigo-900 bg-indigo-50/30 text-[11px]">{t.stats.overallAvg !== null ? t.stats.overallAvg.toFixed(1) : '–'}</td>
-                            </tr>
-                          ))}
-                        </React.Fragment>
-                      );
-                    })}
+                                {customRanges.map((range, rIdx) => {
+                                  const rc = t.stats.rangesCount[rIdx];
+                                  return (
+                                    <React.Fragment key={rIdx}>
+                                      <td className="px-2 py-3 text-gray-500 border-r text-[11px]">{rc.male}</td>
+                                      <td className="px-2 py-3 text-gray-500 border-r text-[11px]">{rc.female}</td>
+                                      <td className="px-2 py-3 font-extrabold text-gray-900 border-r bg-gray-50/30 text-[11px]">{rc.total}</td>
+                                    </React.Fragment>
+                                  );
+                                })}
+                                <td className="px-2 py-3 border-r font-bold text-gray-600 text-[11px]">{t.stats.maleAvg !== null ? t.stats.maleAvg.toFixed(1) : '–'}</td>
+                                <td className="px-2 py-3 border-r font-bold text-gray-600 text-[11px]">{t.stats.femaleAvg !== null ? t.stats.femaleAvg.toFixed(1) : '–'}</td>
+                                <td className="px-2 py-3 font-extrabold text-indigo-900 bg-indigo-50/30 text-[11px]">{t.stats.overallAvg !== null ? t.stats.overallAvg.toFixed(1) : '–'}</td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        );
+                      });
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -1400,9 +1430,15 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
                     onChange={e => setAvgSubject(e.target.value)}
                     className="w-full p-2.5 bg-gray-50 border rounded-xl font-bold text-xs"
                   >
-                    {masterSubjects.map(sub => (
-                      <option key={sub.id} value={sub.id}>{sub.name}</option>
-                    ))}
+                    {(() => {
+                      const matchedGrade = masterGrades.find(g => g.name === avgGrade && g.section === avgSection);
+                      const filteredSubs = matchedGrade && matchedGrade.subjectIds && matchedGrade.subjectIds.length > 0
+                        ? masterSubjects.filter(sub => matchedGrade.subjectIds!.includes(sub.id))
+                        : masterSubjects;
+                      return filteredSubs.map(sub => (
+                        <option key={sub.id} value={sub.id}>{sub.name}</option>
+                      ));
+                    })()}
                   </select>
                 </div>
               </div>
