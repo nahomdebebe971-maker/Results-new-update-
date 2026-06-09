@@ -13,12 +13,19 @@ export function useSchoolConfig() {
     
     // Initial fetch
     const initializeConfig = async () => {
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        setConfig(snap.data() as SchoolConfig);
-      } else {
-        // Just set default if doesn't exist, don't try to write it (Admin will do that)
-        setConfig(DEFAULT_SCHOOL_CONFIG);
+      try {
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          setConfig(snap.data() as SchoolConfig);
+        } else {
+          // Just set default if doesn't exist, don't try to write it (Admin will do that)
+          setConfig(DEFAULT_SCHOOL_CONFIG);
+        }
+      } catch (error) {
+        console.error("Config fetch error:", error);
+        setConfig(DEFAULT_SCHOOL_CONFIG); // Fallback to defaults on connection error
+      } finally {
+        setLoading(false);
       }
     };
 

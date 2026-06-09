@@ -18,6 +18,14 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   ],
   studentIdPrefix: 'ST',
   publishedGrades: [],
+  remarkRules: [
+    { min: 90, max: 100, remark: 'Excellent' },
+    { min: 80, max: 89, remark: 'Very Good' },
+    { min: 75, max: 79, remark: 'Good' },
+    { min: 65, max: 74, remark: 'Satisfactory' },
+    { min: 50, max: 64, remark: 'Needs Improvement' },
+    { min: 0, max: 49, remark: 'Poor Performance' }
+  ],
   transcriptLayout: {
     header: { x: 50, y: 15 },
     logo: { x: 15, y: 15 },

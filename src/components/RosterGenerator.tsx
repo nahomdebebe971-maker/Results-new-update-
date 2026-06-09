@@ -12,6 +12,23 @@ export const isMaleGender = (sex: string): boolean => {
   return s.startsWith('M') || s.startsWith('DHI');
 };
 
+export const getYaadaRemark = (average: number, config?: SchoolConfig | null): string => {
+  if (config?.remarkRules && config.remarkRules.length > 0) {
+    const sortedRules = [...config.remarkRules].sort((a: any, b: any) => b.min - a.min);
+    for (let rule of sortedRules) {
+      if (average >= rule.min && average <= rule.max) {
+        return rule.remark;
+      }
+    }
+  }
+  if (average >= 90) return 'Excellent';
+  if (average >= 80) return 'Very Good';
+  if (average >= 75) return 'Good';
+  if (average >= 65) return 'Satisfactory';
+  if (average >= 50) return 'Needs Improvement';
+  return 'Poor Performance';
+};
+
 // Check for dropout status (where Semester 1 = 0 AND Semester 2 = 0 for at least one subject)
 export const isStudentDropout = (s: Student, subjectsList: Subject[]): boolean => {
   if (!subjectsList || subjectsList.length === 0 || !s.results) return false;
@@ -103,14 +120,15 @@ export const generateRosterPDF = (students: Student[], subjects: Subject[], conf
         aveRow.push(mark?.average !== undefined ? mark.average.toFixed(1) : '-');
       });
 
-      // Roster Summaries (IDA, AVE, SAD, G/H, conduct, absence)
+      // Roster Summaries (IDA, AVE, SAD, G/H, conduct, absence, remark)
       term1Row.push(
         s.semester1?.total.toString() || '0',
         s.semester1?.average?.toFixed(1) || '0',
         s.semester1?.rank.toString() || '0',
         s1Status,
         { content: s.conduct || 'A', rowSpan: 3, styles: { valign: 'middle' as const, halign: 'center' as const, fontStyle: 'bold' as const } },
-        { content: (s.absent ?? 0).toString(), rowSpan: 3, styles: { valign: 'middle' as const, halign: 'center' as const, fontStyle: 'bold' as const } }
+        { content: (s.absent ?? 0).toString(), rowSpan: 3, styles: { valign: 'middle' as const, halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: getYaadaRemark(s.final?.average ?? 0, config), rowSpan: 3, styles: { valign: 'middle' as const, halign: 'center' as const, fontStyle: 'bold' as const } }
       );
 
       term2Row.push(
@@ -139,10 +157,10 @@ export const generateRosterPDF = (students: Student[], subjects: Subject[], conf
         { content: 'UMRII\n(AGE)', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } },
         { content: 'SEEM\n(TERM)', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } },
         { content: 'GOSA BARNOOTAA (SUBJECT COURSES)', colSpan: subjects.length, styles: { halign: 'center' as const } },
-        { content: 'WALIIGALA BARNOOTAA (ACADEMIC RESULTS SUMMARY)', colSpan: 6, styles: { halign: 'center' as const } }
+        { content: 'WALIIGALA BARNOOTAA (ACADEMIC RESULTS SUMMARY)', colSpan: 7, styles: { halign: 'center' as const } }
       ], [
         ...subjects.map(s => ({ content: s.name.toUpperCase().slice(0, 3), styles: { halign: 'center' as const, fontSize: 6.8 } })),
-        'IDA', 'AVE', 'SAD', 'G/H', 'AMALA', 'HAFTE'
+        'IDA', 'AVE', 'SAD', 'G/H', 'AMALA', 'HAFTE', 'YAADA'
       ]],
       body: tableData,
       theme: 'grid',
@@ -269,7 +287,7 @@ export const generateRosterExcel = async (students: Student[], subjects: Subject
     }
   };
 
-  const totalColumns = 11 + subjects.length;
+  const totalColumns = 12 + subjects.length;
 
   for (let pIdx = 0; pIdx < totalPages; pIdx++) {
     const startIdx = pIdx * studentsPerPage;
@@ -330,12 +348,12 @@ export const generateRosterExcel = async (students: Student[], subjects: Subject
     worksheet.mergeCells(r + 3, summaryStartCol, r + 3, summaryStartCol + 3);
     worksheet.getCell(r + 3, summaryStartCol).value = 'WALIIGALA BARNOOTAA (ACADEMIC RESULTS SUMMARY)';
 
-    const summaryLabels = ['IDA (TOT)', 'AVE (AVG)', 'SAD (RNK)', 'G/H (ST)', 'AMALA (CON)', 'HAFTE (ABS)'];
+    const summaryLabels = ['IDA (TOT)', 'AVE (AVG)', 'SAD (RNK)', 'G/H (ST)', 'AMALA (CON)', 'HAFTE (ABS)', 'YAADA (RMK)'];
     summaryLabels.forEach((label, lidx) => {
       if (lidx < 4) {
         worksheet.getCell(r + 4, summaryStartCol + lidx).value = label;
       } else {
-        // AMALA and HAFTE spans all three sub-rows
+        // AMALA, HAFTE, and YAADA spans all three sub-rows
         worksheet.mergeCells(r + 3, summaryStartCol + lidx, r + 4, summaryStartCol + lidx);
         worksheet.getCell(r + 3, summaryStartCol + lidx).value = label;
       }
@@ -429,6 +447,10 @@ export const generateRosterExcel = async (students: Student[], subjects: Subject
       // HAFTE Absents is row-spanned across 3 rows
       worksheet.mergeCells(sr, summaryStartCol + 5, sr + 2, summaryStartCol + 5);
       worksheet.getCell(sr, summaryStartCol + 5).value = s.absent ?? 0;
+
+      // YAADA Remarks is row-spanned across 3 rows
+      worksheet.mergeCells(sr, summaryStartCol + 6, sr + 2, summaryStartCol + 6);
+      worksheet.getCell(sr, summaryStartCol + 6).value = getYaadaRemark(s.final?.average ?? 0, config);
     });
 
     // Write Page Roster footer tables
@@ -818,7 +840,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
     worksheet.views = [{ showGridLines: true }];
 
     const hTeacher = grades.find(g => `${g.name}${g.section}` === selectedGrade)?.homeroomTeacher || 'N/A';
-    const totalColumns = 11 + subjects.length;
+    const totalColumns = 12 + subjects.length;
     const summaryStartCol = 6 + subjects.length;
     const passMark = config.passMark || 50;
 
@@ -870,6 +892,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
       { key: 'rnk', width: 8 },
       { key: 'sts', width: 11 },
       { key: 'cnd', width: 8 },
+      { key: 'abs', width: 8 },
       { key: 'rmk', width: 15 }
     );
     worksheet.columns = colConfigs;
@@ -950,7 +973,8 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
       worksheet.getCell(r + 5, summaryStartCol + 2).value = 'Sad.\n(Rank)';
       worksheet.getCell(r + 5, summaryStartCol + 3).value = 'G/Hafte\n(Status)';
       worksheet.getCell(r + 5, summaryStartCol + 4).value = 'Amala\n(Conduct)';
-      worksheet.getCell(r + 5, summaryStartCol + 5).value = 'Yaada\n(Remarks)';
+      worksheet.getCell(r + 5, summaryStartCol + 5).value = 'Hafte\n(Absent)';
+      worksheet.getCell(r + 5, summaryStartCol + 6).value = 'Yaada\n(Remarks)';
 
       worksheet.getRow(r + 4).height = 24;
       worksheet.getRow(r + 5).height = 24;
@@ -976,6 +1000,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
         worksheet.mergeCells(sr, 4, sr + 2, 4);
         worksheet.mergeCells(sr, summaryStartCol + 4, sr + 2, summaryStartCol + 4);
         worksheet.mergeCells(sr, summaryStartCol + 5, sr + 2, summaryStartCol + 5);
+        worksheet.mergeCells(sr, summaryStartCol + 6, sr + 2, summaryStartCol + 6);
 
         worksheet.getCell(sr, 5).value = '1ffaa';
         worksheet.getCell(sr + 1, 5).value = '2ffaa';
@@ -1035,8 +1060,9 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
           worksheet.getCell(sr + 2, summaryStartCol + 3).value = fStat;
           worksheet.getCell(sr + 2, summaryStartCol + 3).font = { name: 'Arial', size: 9, bold: true };
           
-          worksheet.getCell(sr, summaryStartCol + 4).value = s.conduct || 'A';
+           worksheet.getCell(sr, summaryStartCol + 4).value = s.conduct || 'A';
           worksheet.getCell(sr, summaryStartCol + 5).value = s.absent !== undefined ? `${s.absent} Guyyaa` : '0 Guyyaa';
+          worksheet.getCell(sr, summaryStartCol + 6).value = getYaadaRemark(s.final?.average ?? 0, config);
         } else {
           worksheet.getCell(sr, 1).value = '';
           worksheet.getCell(sr, 2).value = '';
@@ -1067,6 +1093,7 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
 
           worksheet.getCell(sr, summaryStartCol + 4).value = '';
           worksheet.getCell(sr, summaryStartCol + 5).value = '';
+          worksheet.getCell(sr, summaryStartCol + 6).value = '';
         }
       }
 
@@ -1277,7 +1304,8 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                           <th rowSpan={2} className="p-3 border-r border-gray-200 text-center font-bold uppercase text-gray-400 w-16">Sad (Rnk)</th>
                           <th rowSpan={2} className="p-3 border-r border-gray-200 text-center font-bold uppercase text-gray-400 w-32">G/H (Sts)</th>
                           <th rowSpan={2} className="p-3 border-r border-gray-200 text-center font-bold uppercase text-gray-400 w-24">Conduct (Amala)</th>
-                          <th rowSpan={2} className="p-3 text-center font-bold uppercase text-gray-400 w-24">Absent (Hafte)</th>
+                          <th rowSpan={2} className="p-3 border-r border-gray-200 text-center font-bold uppercase text-gray-400 w-24">Absent (Hafte)</th>
+                          <th rowSpan={2} className="p-3 text-center font-bold uppercase text-gray-400 w-32">Remark (Yaada)</th>
                         </tr>
                         <tr className="bg-gray-50 border-b border-gray-200">
                           {subjects.map(s => (
@@ -1316,7 +1344,8 @@ export const RosterGenerator: React.FC<{ config: SchoolConfig | null }> = ({ con
                                 <td className="p-2 border-r border-gray-200 text-center font-mono font-bold bg-indigo-50/10 text-indigo-700">#{s.semester1?.rank}</td>
                                 <td className={`p-2 border-r border-gray-200 text-center text-[11px] ${statColor(s1Stat)}`}>{s1Stat}</td>
                                 <td rowSpan={3} className="p-3 border-r border-gray-200 text-center font-bold bg-gray-50/10 text-gray-800">{s.conduct || 'A'}</td>
-                                <td rowSpan={3} className="p-3 text-center font-mono font-bold bg-gray-50/10 text-gray-800">{s.absent ?? 0}</td>
+                                <td rowSpan={3} className="p-3 border-r border-gray-200 text-center font-mono font-bold bg-gray-50/10 text-gray-800">{s.absent ?? 0}</td>
+                                <td rowSpan={3} className="p-3 text-center font-bold bg-indigo-50/5 text-indigo-950">{getYaadaRemark(s.final?.average ?? 0, config)}</td>
                               </tr>
                               <tr className="hover:bg-gray-50/50">
                                 <td className="p-2 border-r border-gray-200 text-center text-[10px] font-black text-gray-400 uppercase bg-gray-50/5">2ffaa</td>

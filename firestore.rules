@@ -1,28 +1,81 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Explicitly allow school config
-    match /config/school { allow read, write: if true; }
-    match /teachers/{id} { allow read, write: if true; }
-    
-    // Student document rules with role check modeling
-    match /students/{id} { 
-      // Allow read access for authenticated users (Students/Teachers/Admins)
-      allow read: if true; 
-      
-      // Enforce write validation: Only Homeroom Teachers (matching section) or Admins can edit
-      // For development env compat, fallback to permissive allow
-      allow write: if true; 
-    }
-    
-    match /grades/{id} { allow read, write: if true; }
-    match /subjects/{id} { allow read, write: if true; }
-    match /marks/{id} { allow read, write: if true; }
-    match /admins/{id} { allow read, write: if true; }
-    
-    // Catch-all
+
+    // Default catch-all: deny all of it by default
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // School Config: Anyone can read, only authenticated admin accounts can update
+    match /config/school {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.email == 'nahomdebebe971@gmail.com';
+    }
+
+    // Teachers: Admins can fully manage, read might be required for session check
+    match /teachers/{teacherId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.email == 'nahomdebebe971@gmail.com';
+    }
+
+    // Grades: Anyone can read, only authenticated admin users can modify
+    match /grades/{gradeId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.email == 'nahomdebebe971@gmail.com';
+    }
+
+    // Subjects: Only authenticated staff can read or write (protects passkeys)
+    match /subjects/{subjectId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Assignments: Only authenticated staff can read or write
+    match /assignments/{assignmentId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Students: Anyone can read (for list/view), only authenticated admin can delete or overwrite core properties
+    match /students/{studentId} {
+      allow read: if true;
+      
+      // Prevent unauthenticated or teachers from deleting student records or altering immutable state (Name/Age)
+      allow create: if true; // Allows bulk imports on client context
+      allow update: if (request.auth != null && request.auth.token.email == 'nahomdebebe971@gmail.com') || (
+        request.resource.data.name == resource.data.name && 
+        request.resource.data.age == resource.data.age
+      );
+      allow delete: if request.auth != null && request.auth.token.email == 'nahomdebebe971@gmail.com';
+    }
+
+    // Marks: Enforce numeric ranges (0 to 100) and allow reads/writes only for authenticated or valid client contexts
+    match /marks/{markId} {
+      allow read: if true;
+      allow write: if (
+        request.resource.data.semester1 >= 0 && request.resource.data.semester1 <= 100 &&
+        request.resource.data.semester2 >= 0 && request.resource.data.semester2 <= 100 &&
+        request.resource.data.studentId != null
+      );
+    }
+
+    // Published Results: Allow public fetch by ID, but block listing and ensure only admin writes
+    match /publishedResults/{studentId} {
+      allow get: if true;
+      allow list: if false; // Block blanket reads of all published results
+      allow write: if request.auth != null && request.auth.token.email == 'nahomdebebe971@gmail.com';
+    }
+
+    // Verification Cache: Anyone can check a certificate signature by ID, block general list, write only on admin
+    match /verificationCache/{verificationId} {
+      allow get: if true;
+      allow list: if false; // Block blanket reads of certificate signatures
+      allow write: if request.auth != null && request.auth.token.email == 'nahomdebebe971@gmail.com';
+    }
+
+    // Audit Logs: Private auditing collection managed by admins
+    match /auditLogs/{logId} {
+      allow read: if request.auth != null && request.auth.token.email == 'nahomdebebe971@gmail.com';
+      allow create: if true; // Allow logging from clients
     }
   }
 }

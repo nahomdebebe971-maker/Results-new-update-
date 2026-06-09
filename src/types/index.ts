@@ -14,7 +14,10 @@ export interface SchoolConfig {
   schoolAddress?: string;
   schoolPhone?: string;
   schoolEmail?: string;
+  schoolWebsite?: string;
+  directorName?: string;
   schoolLogo: string;
+  schoolStampURL?: string;
   schoolHeaderURL?: string;
   schoolWatermarkURL?: string;
   academicYear: string;
@@ -23,6 +26,7 @@ export interface SchoolConfig {
   analyticsRanges: { label: string; min: number; max: number }[];
   studentIdPrefix: string;
   publishedGrades: string[];
+  remarkRules?: { min: number; max: number; remark: string }[];
   transcriptLayout?: {
     header: Point;
     logo: Point;

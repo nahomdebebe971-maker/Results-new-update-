@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Download, FileText, ChevronRight, AlertCircle, Loader2, Award, Sparkles, BookOpen, User } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Download, FileText, ChevronRight, AlertCircle, Loader2, Award, Sparkles, BookOpen, User, Camera, X } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Student, SchoolConfig, SemesterSummary, Grade, Subject } from '../types';
@@ -8,6 +8,7 @@ import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { generateStudentTranscript } from '../lib/pdfGenerator';
 import { useNavigation } from '../context/NavigationContext';
 import { toast } from 'react-hot-toast';
+import { Html5Qrcode } from 'html5-qrcode';
 
 export const StudentPortal: React.FC = () => {
   const [studentId, setStudentId] = useState('');
@@ -19,6 +20,17 @@ export const StudentPortal: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const { config } = useSchoolConfig();
   const { navigateTo } = useNavigation();
+
+  // Search option and QR Code Scanner variables
+  const [searchMethod, setSearchMethod] = useState<'id' | 'qr'>('id');
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [scanningStatus, setScanningStatus] = useState<'idle' | 'detected' | 'searching'>('idle');
+  const qrScannerRef = useRef<Html5Qrcode | null>(null);
+  const scanRegionId = "student-qr-reader-container";
+
+  // Top rankings states
+  const [topRankingsPublished, setTopRankingsPublished] = useState(false);
+  const [topRankingsList, setTopRankingsList] = useState<any[]>([]);
 
   // Queue states
   const [inQueue, setInQueue] = useState(false);
@@ -32,16 +44,94 @@ export const StudentPortal: React.FC = () => {
       try {
         const snap = await getDocs(collection(db, 'subjects'));
         setSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject)));
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error fetching subjects in student portal:", err);
+        if (err.code === 'unavailable') {
+          setError('The system is currently unable to reach the results database. Please check your internet connection or try again later.');
+        }
       }
     };
     fetchSubjects();
   }, []);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!studentId.trim() || !studentName.trim()) {
+  // Fetch top rankings status
+  useEffect(() => {
+    const fetchTopRankings = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'systemConfiguration', 'topStudentsRanking'));
+        if (snap.exists()) {
+          const data = snap.data();
+          setTopRankingsPublished(data.published || false);
+          setTopRankingsList(data.students || []);
+        }
+      } catch (err: any) {
+        console.error("Failed to fetch published top students:", err);
+        if (err.code === 'unavailable') {
+          // This is often transient, so we don't necessarily need a hard error page yet
+          console.warn("Top rankings unavailable due to network.");
+        }
+      }
+    };
+    fetchTopRankings();
+  }, [student]);
+
+  const deactivateScanner = async () => {
+    if (qrScannerRef.current) {
+      if (qrScannerRef.current.isScanning) {
+        try {
+          await qrScannerRef.current.stop();
+        } catch (err) {
+          console.warn('Error stopping student QR scanner:', err);
+        }
+      }
+      qrScannerRef.current = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  const extractStudentIdFromQR = (text: string): string => {
+    let trimmed = text.trim();
+    // Handle URL hashes if present
+    if (trimmed.includes('#verify-')) {
+      const parts = trimmed.split('#verify-');
+      trimmed = parts[parts.length - 1];
+    }
+    
+    // Split by common delimiters like hyphens
+    const parts = trimmed.split('-');
+    
+    // 1. Look for a part that starts with 'ST' or 'STU' (e.g., TRX-ST502321-2016)
+    const stPart = parts.find(p => p.trim().toUpperCase().startsWith('ST'));
+    if (stPart) return stPart.trim().toUpperCase();
+
+    // 2. Handle ID-xxxx or TRX-xxxx patterns specifically
+    if (parts.length >= 2) {
+      const firstPart = parts[0].toUpperCase();
+      if (firstPart === 'ID' || firstPart === 'TRX') {
+        const secondPart = parts[1].trim().toUpperCase();
+        // If it starts with numeric, it's likely the ID if no ST part was found
+        if (/[0-9]/.test(secondPart)) return secondPart;
+      }
+    }
+
+    // 3. Fallback to full trimmed upper case if it matches ID pattern
+    return trimmed.toUpperCase();
+  };
+
+  const getRecommendation = (average: number): string => {
+    if (average >= 90) return 'Excellent Performance (Dandeettii Olaana)';
+    if (average >= 80) return 'Very Good Performance (Dandeettii Gaarii Olaana)';
+    if (average >= 75) return 'Good Performance (Dandeettii Gaarii)';
+    if (average >= 65) return 'Satisfactory Performance (Dandeettii Giddu-galeessa)';
+    if (average >= 50) return 'Needs Improvement (Gargaarsa Barbaada)';
+    return 'Poor Performance (Gargaarsa Olaana Barbaada)';
+  };
+
+  const performUnifiedSearch = async (providedId: string, providedName?: string, isFromQR = false) => {
+    const targetId = providedId.trim().toUpperCase();
+    const targetName = providedName?.trim().toUpperCase();
+
+    if (!isFromQR && (!targetId || !targetName)) {
       setError('Please provide both your identity PIN and your registered full name.');
       return;
     }
@@ -60,88 +150,84 @@ export const StudentPortal: React.FC = () => {
       // 2. Fetch traffic threshold
       const trafficRef = doc(db, 'systemConfiguration', 'traffic');
       const tSnap = await getDoc(trafficRef);
-      if (!tSnap.exists()) {
-        // Initialize default traffic configuration (no queue by default)
-        await setDoc(trafficRef, { activeRequests: 0, maxActiveRequests: 50 });
-      }
       const trafficData = tSnap.exists() ? tSnap.data() : { activeRequests: 0, maxActiveRequests: 50 };
       const activeRequests = trafficData.activeRequests || 0;
       const maxActiveRequests = trafficData.maxActiveRequests || 50;
 
-      // 3. Check sessionStorage cache
-      const cachedDataStr = sessionStorage.getItem('student_result_cache');
-      let cachedData = cachedDataStr ? JSON.parse(cachedDataStr) : null;
-
-      if (cachedData && cachedData.version === currentVersion) {
-        const cachedStudent = cachedData.results[studentId.trim().toUpperCase()];
-        if (cachedStudent) {
-          // Verify name match (case-insensitive)
-          const recordName = (cachedStudent.studentName || cachedStudent.name || '').trim().toUpperCase();
-          const inputName = studentName.trim().toUpperCase();
-          
-          if (recordName === inputName || recordName.includes(inputName) || inputName.includes(recordName)) {
-            setStudent(cachedStudent);
-            toast.success("Results loaded.......");
-            setLoading(false);
-            return;
-          } else {
-            setError('The student name entered does not match our records for this Student ID.');
-            setLoading(false);
-            return;
+      // 3. Check sessionStorage cache if not QR (QR ignores name verification so cache might be incomplete)
+      if (!isFromQR) {
+        const cachedDataStr = sessionStorage.getItem('student_result_cache');
+        let cachedData = cachedDataStr ? JSON.parse(cachedDataStr) : null;
+        if (cachedData && cachedData.version === currentVersion) {
+          const cachedStudent = cachedData.results[targetId];
+          if (cachedStudent) {
+            const recordName = (cachedStudent.studentName || cachedStudent.name || '').trim().toUpperCase();
+            if (recordName === targetName || recordName.includes(targetName!) || targetName!.includes(recordName)) {
+              setStudent(cachedStudent);
+              toast.success("Results loaded from cache.");
+              setLoading(false);
+              return;
+            }
           }
         }
-      } else {
-        // Reset cache with matching version if old or empty
-        cachedData = { version: currentVersion, results: {} };
       }
 
-      // Cache Miss: Run fetch flow
+      // CORE FETCH LOGIC
       const executeFetch = async () => {
         setLoading(true);
         try {
-          const pubDocRef = doc(db, 'publishedResults', studentId.trim().toUpperCase());
+          // Check if result exists
+          const pubDocRef = doc(db, 'publishedResults', targetId);
           const pubSnap = await getDoc(pubDocRef);
 
           if (pubSnap.exists()) {
             const studentData = pubSnap.data() as any;
-            
-            // Verify name match (case-insensitive)
             const recordName = (studentData.studentName || studentData.name || '').trim().toUpperCase();
-            const inputName = studentName.trim().toUpperCase();
             
-            if (recordName === inputName || recordName.includes(inputName) || inputName.includes(recordName)) {
+            // Name verification (skipped for QR)
+            if (isFromQR || (targetName && (recordName === targetName || recordName.includes(targetName) || targetName.includes(recordName)))) {
               setStudent(studentData);
               
-              // Save to sessionStorage cache
-              const updatedResults = {
-                ...cachedData.results,
-                [studentId.trim().toUpperCase()]: studentData
-              };
-              sessionStorage.setItem('student_result_cache', JSON.stringify({
-                version: currentVersion,
-                results: updatedResults
-              }));
+              // Update name state for UI consistency if QR scan
+              if (isFromQR) {
+                setStudentName(studentData.name || studentData.studentName || '');
+              }
+
+              // Update cache
+              const cachedDataStr = sessionStorage.getItem('student_result_cache');
+              let cachedData = cachedDataStr ? JSON.parse(cachedDataStr) : { version: currentVersion, results: {} };
+              cachedData.results[targetId] = studentData;
+              sessionStorage.setItem('student_result_cache', JSON.stringify(cachedData));
               
               toast.success("Result retrieved successfully!");
             } else {
               setError('The student name entered does not match our records for this Student ID.');
             }
           } else {
-            setError('The student ID was not registered in our published results records or is not published yet.');
+            // Result not in publishedResults. Check if student even exists.
+            const studentCheckRef = doc(db, 'students', targetId);
+            const studentCheckSnap = await getDoc(studentCheckRef);
+            
+            if (studentCheckSnap.exists()) {
+              setError('Result Not Published Yet');
+            } else {
+              setError('Student Record Not Found');
+            }
           }
         } catch (err) {
           console.error(err);
-          setError('A secure records query timeout occurred. Please re-search.');
+          setError('A secure records query timeout occurred. Please retry.');
         } finally {
           setLoading(false);
+          setScanningStatus('idle');
         }
       };
 
-      // 4. Determine if we should trigger High Volume Queue Mode
+      // Queue Logic
       if (activeRequests > maxActiveRequests) {
         setInQueue(true);
         setQueueStatus("Connecting to result server...");
-        const startPos = (activeRequests - maxActiveRequests) + Math.floor(Math.random() * 4) + 2; // e.g. 10
+        const startPos = (activeRequests - maxActiveRequests) + Math.floor(Math.random() * 4) + 2;
         setQueuePosition(startPos);
         setStudentsAhead(startPos - 1);
         setWaitTime((startPos - 1) * 2);
@@ -157,28 +243,129 @@ export const StudentPortal: React.FC = () => {
             const nextPos = prev - 1;
             setStudentsAhead(nextPos - 1);
             setWaitTime(Math.max(0, (nextPos - 1) * 2));
-
-            const progress = nextPos / startPos;
-            if (progress > 0.65) {
-              setQueueStatus("Connecting to result server...");
-            } else if (progress > 0.3) {
-              setQueueStatus("Checking student record...");
-            } else {
-              setQueueStatus("Loading published result...");
-            }
             return nextPos;
           });
         }, 1200);
       } else {
-        // Direct Query
         await executeFetch();
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Connection failed. Please check internet access or retry.');
+      if (err.code === 'unavailable') {
+        setError('Database connection lost. Please verify your internet connection and try again.');
+      } else {
+        setError('Connection failed. Please check internet access or retry.');
+      }
       setLoading(false);
+      setScanningStatus('idle');
     }
+  };
+
+  const loadStudentByExtractedId = async (extractedId: string) => {
+    // 1. Basic validation - if it doesn't contain digits or ID patterns, it's likely invalid
+    const idRegex = /[S|T|R|X|I|D]{0,3}\d+/;
+    if (!extractedId || !idRegex.test(extractedId)) {
+      setError('Invalid QR Code. Please scan a valid Student ID or Transcript QR code.');
+      setSearchMethod('id');
+      deactivateScanner();
+      return;
+    }
+
+    // 2. Fill Student ID input automatically
+    setStudentId(extractedId);
+    
+    // 3. Visual confirmation
+    setScanningStatus('detected');
+    toast.success(`QR Detected Success: ${extractedId}`);
+
+    // 4. Close scanner and switch view
+    await deactivateScanner();
+    setSearchMethod('id');
+
+    // 5. Trigger the exact same search logic
+    await performUnifiedSearch(extractedId, undefined, true);
+  };
+
+  // Manage scanner lifecycle corresponding to searchMethod
+  useEffect(() => {
+    let checkExist: NodeJS.Timeout | null = null;
+    let isMounted = true;
+
+    if (searchMethod === 'qr') {
+      setIsCameraActive(true);
+      setError('');
+
+      let attempts = 0;
+      checkExist = setInterval(async () => {
+        if (!isMounted) return;
+        const el = document.getElementById(scanRegionId);
+        attempts++;
+
+        if (el) {
+          if (checkExist) {
+            clearInterval(checkExist);
+            checkExist = null;
+          }
+          
+          try {
+            if (qrScannerRef.current) {
+              await deactivateScanner();
+            }
+
+            const scanner = new Html5Qrcode(scanRegionId);
+            qrScannerRef.current = scanner;
+
+            await scanner.start(
+              { facingMode: "environment" },
+              {
+                fps: 15,
+                qrbox: (width, height) => {
+                  const size = Math.min(width, height) * 0.7;
+                  return { width: size, height: size };
+                }
+              },
+              async (decodedText) => {
+                await deactivateScanner();
+                const extractedId = extractStudentIdFromQR(decodedText);
+                await loadStudentByExtractedId(extractedId);
+              },
+              () => {
+                // Silent loop
+              }
+            );
+          } catch (err) {
+            console.error("Camera startup error:", err);
+            toast.error("Unable to access camera. Please confirm permissions.");
+            setSearchMethod('id');
+            setIsCameraActive(false);
+          }
+        } else if (attempts > 30) {
+          if (checkExist) {
+            clearInterval(checkExist);
+            checkExist = null;
+          }
+          toast.error("Scanner element mount timeout.");
+          setSearchMethod('id');
+          setIsCameraActive(false);
+        }
+      }, 100);
+    } else {
+      deactivateScanner();
+    }
+
+    return () => {
+      isMounted = false;
+      if (checkExist) {
+        clearInterval(checkExist);
+      }
+      deactivateScanner();
+    };
+  }, [searchMethod]);
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await performUnifiedSearch(studentId, studentName, false);
   };
 
   return (
@@ -200,39 +387,93 @@ export const StudentPortal: React.FC = () => {
           </p>
         </div>
 
-        <form onSubmit={handleSearch} className="space-y-4 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="relative">
-              <input
-                type="text"
-                value={studentId}
-                onChange={(e) => setStudentId(e.target.value)}
-                placeholder="Identity PIN (e.g. ST123456)"
-                className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-850 border border-gray-150 dark:border-gray-800 text-gray-900 dark:text-white rounded-2xl focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/40 focus:border-indigo-600 dark:focus:border-indigo-400 focus:bg-white dark:focus:bg-gray-900 transition-all outline-none text-base sm:text-lg font-mono font-bold tracking-wider placeholder:tracking-normal placeholder:font-sans"
-              />
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-550 w-5 h-5" />
-            </div>
-
-            <div className="relative">
-              <input
-                type="text"
-                value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
-                placeholder="Student Registered Name"
-                className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-850 border border-gray-150 dark:border-gray-800 text-gray-900 dark:text-white rounded-2xl focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/40 focus:border-indigo-600 dark:focus:border-indigo-400 focus:bg-white dark:focus:bg-gray-900 transition-all outline-none text-base sm:text-lg font-bold placeholder:font-normal"
-              />
-              <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-550 w-5 h-5" />
-            </div>
+        {/* Toggle Option selection pills */}
+        <div className="flex justify-center mb-8">
+          <div className="inline-flex p-1 bg-gray-55 dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60">
+            <button
+              type="button"
+              onClick={() => {
+                setSearchMethod('id');
+                deactivateScanner();
+              }}
+              className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${searchMethod === 'id' ? 'bg-white dark:bg-gray-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-255'}`}
+            >
+              <Search className="w-4 h-4" /> Option 1: Student ID
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchMethod('qr')}
+              className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${searchMethod === 'qr' ? 'bg-white dark:bg-gray-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-255'}`}
+            >
+              <Camera className="w-4 h-4" /> Option 2: Scan QR Code
+            </button>
           </div>
+        </div>
 
-          <button
-            type="submit"
-            disabled={loading || inQueue}
-            className="w-full py-4 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm uppercase tracking-wider relative overflow-hidden active:scale-98 shadow-md"
-          >
-            {loading || inQueue ? <Loader2 className="animate-spin w-5 h-5" /> : 'Search Result'}
-          </button>
-        </form>
+        {searchMethod === 'id' ? (
+          <form onSubmit={handleSearch} className="space-y-4 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={studentId}
+                  onChange={(e) => setStudentId(e.target.value)}
+                  placeholder="Identity PIN (e.g. ST123456)"
+                  className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-855 border border-gray-150 dark:border-gray-800 text-gray-900 dark:text-white rounded-2xl focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/40 focus:border-indigo-600 dark:focus:border-indigo-400 focus:bg-white dark:focus:bg-gray-900 transition-all outline-none text-base sm:text-lg font-mono font-bold tracking-wider placeholder:tracking-normal placeholder:font-sans"
+                />
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-550 w-5 h-5" />
+              </div>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  value={studentName}
+                  onChange={(e) => setStudentName(e.target.value)}
+                  placeholder="Student Registered Name"
+                  className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-855 border border-gray-150 dark:border-gray-800 text-gray-900 dark:text-white rounded-2xl focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/40 focus:border-indigo-600 dark:focus:border-indigo-400 focus:bg-white dark:focus:bg-gray-900 transition-all outline-none text-base sm:text-lg font-bold placeholder:font-normal"
+                />
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-550 w-5 h-5" />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || inQueue}
+              className="w-full py-4 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm uppercase tracking-wider relative overflow-hidden active:scale-98 shadow-md cursor-pointer"
+            >
+              {loading || inQueue ? <Loader2 className="animate-spin w-5 h-5" /> : 'Search Result'}
+            </button>
+          </form>
+        ) : (
+          <div className="mb-8 p-6 bg-gray-50 dark:bg-gray-855 rounded-3xl border border-gray-150 dark:border-gray-800/60 max-w-lg mx-auto overflow-hidden">
+            <div className="text-center mb-4">
+              <h3 className="text-sm font-black text-gray-850 dark:text-gray-100 uppercase tracking-wider">Live Camera QR Code Reader</h3>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Place the printed QR code signature inside the camera viewport</p>
+            </div>
+            
+            <div className="relative bg-black dark:bg-gray-950 rounded-2xl aspect-video overflow-hidden border border-gray-200 dark:border-gray-800 shadow-inner flex items-center justify-center">
+              {isCameraActive ? (
+                <div id={scanRegionId} className="w-full h-full object-cover" />
+              ) : (
+                <div className="flex flex-col items-center gap-2 text-gray-400">
+                  <Camera className="w-10 h-10 animate-pulse text-indigo-500" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Activating camera hardware...</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSearchMethod('id');
+                deactivateScanner();
+              }}
+              className="mt-4 w-full py-2.5 bg-gray-150 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-750 text-gray-700 dark:text-gray-250 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+            >
+              Cancel Scan
+            </button>
+          </div>
+        )}
 
 
         <AnimatePresence>
@@ -301,7 +542,9 @@ export const StudentPortal: React.FC = () => {
                     if (config && student && !downloading) {
                       setDownloading(true);
                       try {
-                        await generateStudentTranscript(student, config, subjects);
+                        const gradesSnap = await getDocs(query(collection(db, 'grades'), where('name', '==', student.grade), where('section', '==', student.section)));
+                        const htName = gradesSnap.docs[0]?.data()?.homeroomTeacher || '________________';
+                        await generateStudentTranscript(student, config, subjects, htName);
                       } catch (err) {
                         console.error('Failed to download transcript:', err);
                       } finally {
@@ -353,7 +596,7 @@ export const StudentPortal: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase pt-2 border-t border-gray-100/50 dark:border-gray-800 leading-tight">
-                      Mark: {student.conduct || 'A'} • Attendance: {student.absent ?? 0} days missed
+                      Recommendation: {getRecommendation(student.final?.average || 0)}
                     </div>
                   </div>
                 </div>
@@ -419,9 +662,48 @@ export const StudentPortal: React.FC = () => {
         </AnimatePresence>
 
         {loading && !student && (
-          <div className="flex flex-col items-center gap-4 py-16">
-            <Loader2 className="animate-spin w-12 h-12 text-indigo-600" />
-            <p className="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-widest text-[10px]">Accessing student ledger...</p>
+          <div className="flex flex-col items-center gap-6 py-16">
+            <div className="relative">
+              <Loader2 className="animate-spin w-16 h-16 text-indigo-600" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900 rounded-full animate-ping" />
+              </div>
+            </div>
+            
+            <div className="text-center space-y-3">
+              <div className="flex flex-col items-center gap-1">
+                <h3 className="text-xl font-black text-gray-900 dark:text-white tracking-tight">Finding Student...</h3>
+                {studentId && (
+                  <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700">
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Target ID:</span>
+                    <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 font-mono">{studentId}</span>
+                  </div>
+                )}
+              </div>
+              
+              <div className="w-64 h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mx-auto">
+                <motion.div 
+                  className="h-full bg-indigo-600"
+                  initial={{ width: "0%" }}
+                  animate={{ width: "100%" }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                />
+              </div>
+
+              <p className="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-widest text-[10px]">
+                Searching published results... Please wait...
+              </p>
+            </div>
+            
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="px-6 py-3 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100/50 dark:border-indigo-900/10 flex items-center gap-3"
+            >
+              <Sparkles className="w-4 h-4 text-indigo-500" />
+              <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">Verifying academic signature...</span>
+            </motion.div>
           </div>
         )}
 
@@ -448,6 +730,45 @@ export const StudentPortal: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* TOP 5 SCHOLARS RANKING CARD Section */}
+        <div className="mt-12 bg-white dark:bg-gray-900 border border-gray-105 dark:border-gray-800 rounded-3xl p-6 sm:p-8 shadow-sm">
+          <div className="flex items-center gap-3 border-b border-gray-55 dark:border-gray-800 pb-4 mb-6">
+            <div className="p-2 bg-amber-500 text-white rounded-xl">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-gray-900 dark:text-white tracking-tight">
+                Top Scholars Honor Board <span className="text-gray-400 font-medium text-xs sm:text-sm border-l pl-2 ml-2 border-gray-200 dark:border-gray-700">Oromia Excellence</span>
+              </h3>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-0.5">Top 5 Student Averages School-Wide</p>
+            </div>
+          </div>
+
+          {topRankingsPublished ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+              {topRankingsList.slice(0, 5).map((studentRank: any, idx: number) => (
+                <div 
+                  key={studentRank.studentId || idx} 
+                  className="flex flex-col items-center text-center p-4 bg-gray-50 dark:bg-gray-855 rounded-2xl border border-transparent hover:border-amber-400 transition-all shadow-xs"
+                >
+                  <span className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs mb-3 ${idx === 0 ? 'bg-amber-500 text-white shadow' : idx === 1 ? 'bg-slate-300 dark:bg-slate-705 text-gray-900 dark:text-white shadow font-bold' : idx === 2 ? 'bg-amber-700 text-white shadow font-bold' : 'bg-white dark:bg-gray-800 text-gray-400'}`}>
+                    {idx + 1}
+                  </span>
+                  <p className="font-black text-xs text-gray-950 dark:text-gray-100 line-clamp-1">{studentRank.name}</p>
+                  <p className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase mt-0.5">{studentRank.studentId} • Gr {studentRank.grade}{studentRank.section}</p>
+                  <span className="mt-2 text-sm font-black text-amber-600 dark:text-amber-400">{(studentRank.average ?? 0).toFixed(1)}%</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-6 text-center">
+              <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
+                Top Student Ranking Not Yet Published
+              </p>
+            </div>
+          )}
+        </div>
       </motion.div>
     </div>
   );

@@ -195,6 +195,24 @@ export const publishGradeResults = async (gradeId: string, publish: boolean, con
       published: true,
       publishedAt: new Date().toISOString()
     });
+
+    // Create /verificationCache record for transcript verification
+    const verificationId = `TRX-${s.studentId}-${config.academicYear.replace(/\s+/g, '')}`;
+    const vRef = doc(db, 'verificationCache', verificationId);
+    batch.set(vRef, {
+      verificationId,
+      documentType: 'Official Academic Transcript',
+      studentId: s.studentId,
+      studentName: s.studentName,
+      grade: s.grade,
+      section: s.section,
+      sex: s.sex,
+      age: s.age,
+      academicYear: config.academicYear,
+      schoolName: config.schoolName,
+      dateGenerated: new Date().toISOString(),
+      status: 'Verified'
+    });
   });
 
   await batch.commit();
@@ -346,6 +364,24 @@ export const calculateResultsForGrade = async (gradeName: string, section: strin
         final: s.final,
         published: true,
         publishedAt: new Date().toISOString()
+      });
+
+      // Create /verificationCache record for transcript verification
+      const verificationId = `TRX-${s.studentId}-${config.academicYear.replace(/\s+/g, '')}`;
+      const vRef = doc(db, 'verificationCache', verificationId);
+      batch.set(vRef, {
+        verificationId,
+        documentType: 'Official Academic Transcript',
+        studentId: s.studentId,
+        studentName: s.studentName,
+        grade: s.grade,
+        section: s.section,
+        sex: s.sex,
+        age: s.age,
+        academicYear: config.academicYear,
+        schoolName: config.schoolName,
+        dateGenerated: new Date().toISOString(),
+        status: 'Verified'
       });
     }
   });

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { getAnalytics, calculateAndSaveAnalytics } from '../services/analyticsService';
 import { SchoolAnalytics, Student, Mark, Grade, Subject, SchoolConfig } from '../types';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -15,14 +15,20 @@ import * as XLSX from 'xlsx';
 import { toast } from 'react-hot-toast';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, Cell, PieChart, Pie, Legend, LineChart, Line 
+  ResponsiveContainer, Cell, PieChart, Pie, Legend, LineChart, Line,
+  AreaChart, Area
 } from 'recharts';
 
 export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ config }) => {
   const [analytics, setAnalytics] = useState<SchoolAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'config' | 'overview' | 'rankings' | 'subjects' | 'comparatives' | 'decision_dropout'>('config');
+  const [activeSubTab, setActiveSubTab] = useState<'config' | 'overview' | 'rankings' | 'subjects' | 'comparatives' | 'decision_dropout' | 'merit_list' | 'attendance_analytics'>('config');
+
+  // advanced lazy load cache arrays
+  const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [allMarks, setAllMarks] = useState<Mark[]>([]);
+  const [isLazyLoadingAll, setIsLazyLoadingAll] = useState(false);
 
   // Master definitions for lazy loading dropdowns
   const [masterGrades, setMasterGrades] = useState<Grade[]>([]);
@@ -156,6 +162,31 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
 
     fetchClassDataOnDemand();
   }, [selectedSubGrade, selectedSubSection]);
+
+  // Lazy load complete rosters for Merit rankings and Attendance computations
+  useEffect(() => {
+    if (activeSubTab !== 'merit_list' && activeSubTab !== 'attendance_analytics') return;
+    if (allStudents.length > 0 && allMarks.length > 0) return;
+
+    const fetchAllComprehensives = async () => {
+      setIsLazyLoadingAll(true);
+      try {
+        const [stSnap, mrSnap] = await Promise.all([
+          getDocs(collection(db, 'students')),
+          getDocs(collection(db, 'marks'))
+        ]);
+        setAllStudents(stSnap.docs.map(d => ({ id: d.id, ...d.data() })) as Student[]);
+        setAllMarks(mrSnap.docs.map(d => ({ id: d.id, ...d.data() })) as Mark[]);
+      } catch (err) {
+        console.error('Error fetching advanced datasets:', err);
+        toast.error('Failed to resolve all school records.');
+      } finally {
+        setIsLazyLoadingAll(false);
+      }
+    };
+
+    fetchAllComprehensives();
+  }, [activeSubTab, allStudents.length, allMarks.length]);
 
   // Compute stats for Subject Average on dynamic picks
   useEffect(() => {
@@ -666,6 +697,131 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
     XLSX.writeFile(workbook, "Decision_Support_Intelligence_Summary.xlsx");
   };
 
+  // High-fidelity Merit list PDF report download
+  const exportMeritListPDF = (title: string, data: any[]) => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const schoolName = config?.schoolName || 'CHERCHER SECONDARY SCHOOL';
+    const motto = config?.schoolMotto || 'KNOWLEDGE IS LIGHT';
+    const academicYear = config?.academicYear || '2016 E.C';
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(26, 37, 85);
+    doc.text(schoolName.toUpperCase(), 105, 18, { align: 'center' });
+    
+    doc.setFont('Helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(115, 115, 115);
+    doc.text(motto.toUpperCase(), 105, 23, { align: 'center' });
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(79, 70, 229);
+    doc.text(title.toUpperCase(), 105, 30, { align: 'center' });
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(`Academic Year: ${academicYear}   |   Date Generated: ${new Date().toLocaleDateString()}`, 105, 35, { align: 'center' });
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(15, 38, 195, 38);
+
+    const body = data.map((item, idx) => [
+      (idx + 1).toString(),
+      item.studentId,
+      item.name.toUpperCase(),
+      item.sex,
+      `${item.grade} - ${item.section}`,
+      `${item.score.toFixed(1)}%`,
+      item.passed ? 'PASSED' : 'FAILED'
+    ]);
+
+    autoTable(doc, {
+      startY: 42,
+      head: [['RANK', 'STUDENT ID', 'STUDENT NAME', 'GENDER', 'GRADE & SECTION', 'TOTAL AVERAGE', 'STATUS']],
+      body: body,
+      theme: 'striped',
+      headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 8, textColor: [55, 65, 81] },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 15 },
+        1: { cellWidth: 25 },
+        3: { halign: 'center', cellWidth: 15 },
+        4: { halign: 'center', cellWidth: 35 },
+        5: { halign: 'right', fontStyle: 'bold', cellWidth: 25 },
+        6: { halign: 'center', cellWidth: 20 }
+      },
+      didDrawPage: (dp) => {
+        const pageCount = doc.getNumberOfPages();
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(156, 163, 175);
+        doc.text(`Page ${dp.pageNumber} of ${pageCount}`, 105, 285, { align: 'center' });
+      }
+    });
+
+    doc.save(`MeritList-${title.replace(/\s+/g, '-')}.pdf`);
+  };
+
+  // High-fidelity Attendance days PDF download
+  const exportAttendancePDF = (title: string, data: any[]) => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const schoolName = config?.schoolName || 'CHERCHER SECONDARY SCHOOL';
+    const motto = config?.schoolMotto || 'KNOWLEDGE IS LIGHT';
+    const academicYear = config?.academicYear || '2016 E.C';
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(26, 37, 85);
+    doc.text(schoolName.toUpperCase(), 105, 18, { align: 'center' });
+    
+    doc.setFont('Helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(115, 115, 115);
+    doc.text(motto.toUpperCase(), 105, 23, { align: 'center' });
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(79, 70, 229);
+    doc.text(title.toUpperCase(), 105, 30, { align: 'center' });
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(`Academic Year: ${academicYear}   |   Date Generated: ${new Date().toLocaleDateString()}`, 105, 35, { align: 'center' });
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(15, 38, 195, 38);
+
+    const body = data.map((item, idx) => [
+      (idx + 1).toString(),
+      item.studentId,
+      item.name.toUpperCase(),
+      item.sex,
+      `${item.grade} - ${item.section}`,
+      `${item.absent ?? 0} Guyyaa (Days)`,
+      `${(100 - ((item.absent ?? 0) / 180 * 100)).toFixed(1)}%`
+    ]);
+
+    autoTable(doc, {
+      startY: 42,
+      head: [['S.NO', 'STUDENT ID', 'STUDENT NAME', 'GENDER', 'GRADE & SECTION', 'ABSENT DAYS', 'ATTENDANCE %']],
+      body: body,
+      theme: 'striped',
+      headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 8, textColor: [55, 65, 81] },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 15 },
+        1: { cellWidth: 25 },
+        3: { halign: 'center', cellWidth: 15 },
+        4: { halign: 'center', cellWidth: 35 },
+        5: { halign: 'center', cellWidth: 25 },
+        6: { halign: 'right', fontStyle: 'bold', cellWidth: 25 }
+      }
+    });
+
+    doc.save(`AttendanceReport-${title.replace(/\s+/g, '-')}.pdf`);
+  };
+
   // Setup dynamic Performance distribution datasets
   const dynamicDistData = customRanges.map(cr => {
     const count = allStudentsRankData
@@ -771,6 +927,30 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
           className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${!analytics ? 'opacity-40 cursor-not-allowed' : ''} ${activeSubTab === 'decision_dropout' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-550 hover:text-gray-900'}`}
         >
           5. Decision & Dropouts
+        </button>
+        <button 
+          onClick={() => {
+            setActiveSubTab('merit_list');
+          }} 
+          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${activeSubTab === 'merit_list' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-550 hover:text-gray-900'}`}
+        >
+          🏅 6. Merit List
+        </button>
+        <button 
+          onClick={() => {
+            setActiveSubTab('attendance_analytics');
+          }} 
+          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${activeSubTab === 'attendance_analytics' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-550 hover:text-gray-900'}`}
+        >
+          📅 7. Attendance (Hafte)
+        </button>
+        <button 
+          onClick={() => {
+            setActiveSubTab('top_students_publish');
+          }} 
+          className={`px-4 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${activeSubTab === 'top_students_publish' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-550 hover:text-gray-900'}`}
+        >
+          🏆 8. Top Students Publish
         </button>
       </div>
 
@@ -1763,9 +1943,846 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
         </div>
       )}
 
+      {/* TAB 6: OFFICIAL COMPREHENSIVE MERIT LISTS ENGINE */}
+      {activeSubTab === 'merit_list' && (
+        <div className="space-y-8 animate-fade-in text-gray-950">
+          {/* Config filters */}
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div>
+              <h3 className="text-xl font-black text-indigo-950 flex items-center gap-2">
+                🏆 Official Merit Rank System
+              </h3>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                KOBEE KUTAA GILAALII BU’AA BARATTOOTAA WALTA’AA
+              </p>
+            </div>
+
+            <button 
+              onClick={() => handleRecalculate(false)} 
+              disabled={syncing}
+              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-black flex items-center gap-2"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /> Refresh Lists
+            </button>
+          </div>
+
+          {isLazyLoadingAll ? (
+            <div className="p-20 flex flex-col items-center justify-center gap-4 bg-white rounded-3xl border border-gray-50 shadow-sm">
+              <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+              <p className="text-gray-400 font-extrabold text-sm uppercase tracking-widest">Compiling Full Campus Rosters (10,000+)...</p>
+            </div>
+          ) : (
+            <MeritListCalculator 
+              students={allStudents} 
+              marks={allMarks} 
+              grades={masterGrades} 
+              subjects={masterSubjects} 
+              config={config} 
+              exportPDF={exportMeritListPDF} 
+            />
+          )}
+        </div>
+      )}
+
+      {/* TAB 7: CAMPUS ATTENDANCE ANALYTICS ENGINE */}
+      {activeSubTab === 'attendance_analytics' && (
+        <div className="space-y-8 animate-fade-in text-gray-950">
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-sm">
+            <div>
+              <h3 className="text-xl font-black text-indigo-950 flex items-center gap-2">
+                📅 Campus Attendance (Hafte) Analytics
+              </h3>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                XALXALA HAWIIDHA HAFFE (ABSENTEEISM REPORT)
+              </p>
+            </div>
+          </div>
+
+          {isLazyLoadingAll ? (
+            <div className="p-20 flex flex-col items-center justify-center gap-4 bg-white rounded-3xl border border-gray-50 shadow-sm">
+              <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+              <p className="text-gray-400 font-extrabold text-sm uppercase tracking-widest">Compiling Full Attendance Registers...</p>
+            </div>
+          ) : (
+            <AttendanceAnalyticsSection 
+              students={allStudents} 
+              grades={masterGrades} 
+              config={config} 
+              exportPDF={exportAttendancePDF} 
+            />
+          )}
+        </div>
+      )}
+
+      {activeSubTab === 'top_students_publish' && (
+        <Top5RankingsPublishSection 
+          allStudentsRankData={allStudentsRankData} 
+        />
+      )}
+
     </div>
   );
 };
+
+/* ==============================================
+   ADMIN CONTROLLED TOP 5 HONORS BOARD PUBLISHER
+   ============================================== */
+const Top5RankingsPublishSection: React.FC<{ allStudentsRankData: any[] }> = ({ allStudentsRankData }) => {
+  const [publishing, setPublishing] = useState(false);
+  const [isPublished, setIsPublished] = useState(false);
+  const [publishedStudents, setPublishedStudents] = useState<any[]>([]);
+
+  // Fetch current published configuration state from database
+  useEffect(() => {
+    const fetchCurrentStatus = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'systemConfiguration', 'topStudentsRanking'));
+        if (snap.exists()) {
+          const data = snap.data();
+          setIsPublished(data.published || false);
+          setPublishedStudents(data.students || []);
+        }
+      } catch (err) {
+        console.error("Failed to read top student state:", err);
+      }
+    };
+    fetchCurrentStatus();
+  }, []);
+
+  // Compute live local top 5 students from current active records
+  const dynamicTop5 = [...allStudentsRankData]
+    .sort((a, b) => b.average - a.average)
+    .slice(0, 5)
+    .map(s => ({
+      studentId: s.studentId,
+      name: s.name,
+      grade: s.grade,
+      section: s.section,
+      average: s.average
+    }));
+
+  const handlePublish = async () => {
+    setPublishing(true);
+    try {
+      await setDoc(doc(db, 'systemConfiguration', 'topStudentsRanking'), {
+        published: true,
+        students: dynamicTop5,
+        updatedAt: new Date().toISOString()
+      });
+      setIsPublished(true);
+      setPublishedStudents(dynamicTop5);
+      toast.success("Successfully published Top 5 Students to the Student Portal Honors Board!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to publish rankings.");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleUnpublish = async () => {
+    setPublishing(true);
+    try {
+      await setDoc(doc(db, 'systemConfiguration', 'topStudentsRanking'), {
+        published: false,
+        students: [],
+        updatedAt: new Date().toISOString()
+      });
+      setIsPublished(false);
+      setPublishedStudents([]);
+      toast.success("Successfully unpublished / withdrew Top 5 Students from Student Portal.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to withdraw rankings.");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in text-gray-950">
+      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div>
+          <h3 className="text-xl font-black text-indigo-950 flex items-center gap-2">
+            🏆 Top Student Ranking Publisher
+          </h3>
+          <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+            Admin Controlled Honors Board Publishing Tool
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <span className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider border ${isPublished ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
+            Status: {isPublished ? '🔴 Published Live' : 'Draft / Hidden'}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Left Column: Dynamic live ranks */}
+        <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-sm space-y-6">
+          <div>
+            <h4 className="text-lg font-black text-indigo-950">Dynamic Live Rankings (Top 5)</h4>
+            <p className="text-xs text-gray-400 font-medium">Auto-derived from current active entries inside the records database</p>
+          </div>
+
+          <div className="divide-y divide-gray-50 border-t border-b border-gray-50">
+            {dynamicTop5.length > 0 ? (
+              dynamicTop5.map((student, idx) => (
+                <div key={student.studentId} className="py-4 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 font-black text-xs flex items-center justify-center">
+                      #{idx + 1}
+                    </span>
+                    <div>
+                      <p className="font-extrabold text-sm text-gray-900">{student.name}</p>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{student.studentId} • Grade {student.grade}{student.section}</p>
+                    </div>
+                  </div>
+                  <span className="text-base font-black text-indigo-600">{student.average.toFixed(1)}%</span>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm font-bold text-gray-400 py-6 text-center">No student records found to compute ranking.</p>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-4">
+            <button
+              onClick={handlePublish}
+              disabled={publishing || dynamicTop5.length === 0}
+              className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-755 text-white rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg hover:shadow-indigo-100 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Publish to Student Portal
+            </button>
+            <button
+              onClick={handleUnpublish}
+              disabled={publishing}
+              className="px-6 py-4 bg-gray-50 hover:bg-gray-100 border border-gray-150 text-gray-700 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              Unpublish / Withdraw
+            </button>
+          </div>
+        </div>
+
+        {/* Right Column: Currently Published Honors Preview */}
+        <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-sm space-y-6">
+          <div>
+            <h4 className="text-lg font-black text-indigo-950 font-sans">Active Published Preview</h4>
+            <p className="text-xs text-gray-400 font-medium">As shown inside the Student Portal Honors Board preview card</p>
+          </div>
+
+          {isPublished && publishedStudents.length > 0 ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-5 gap-3">
+                {publishedStudents.map((student, idx) => (
+                  <div key={student.studentId} className="flex flex-col items-center justify-center p-3 bg-indigo-50/10 rounded-2xl border border-indigo-50 text-center">
+                    <span className="w-6 h-6 rounded-full bg-amber-500 text-white font-black text-[10px] flex items-center justify-center mb-2">
+                      {idx + 1}
+                    </span>
+                    <p className="font-black text-[10px] text-gray-900 line-clamp-1">{student.name}</p>
+                    <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">Gr {student.grade}{student.section}</p>
+                    <span className="text-xs font-black text-amber-600 mt-2">{student.average.toFixed(1)}%</span>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-emerald-50/20 border border-emerald-100 rounded-2xl p-4 text-emerald-800 text-xs font-bold leading-relaxed flex items-center gap-2">
+                <span>🏆 The above snapshot is verified and currently active on the main student portal.</span>
+              </div>
+            </div>
+          ) : (
+            <div className="py-20 flex flex-col items-center justify-center text-center gap-3 bg-gray-50/50 rounded-3xl border border-dashed border-gray-200">
+              <Award className="w-12 h-12 text-gray-300" />
+              <div>
+                <p className="font-extrabold text-sm text-gray-400 uppercase tracking-widest">Honors Board Hidden</p>
+                <p className="text-xs text-gray-400 max-w-xs mx-auto mt-1">Student Portal will show "Top Student Ranking Not Yet Published" preview.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ==========================================
+   ADVANCED RE-USABLE MERIT ENGINE COMPONENT
+   ========================================== */
+interface MeritListCalculatorProps {
+  students: Student[];
+  marks: Mark[];
+  grades: Grade[];
+  subjects: Subject[];
+  config: SchoolConfig | null;
+  exportPDF: (title: string, data: any[]) => void;
+}
+
+const MeritListCalculator: React.FC<MeritListCalculatorProps> = ({
+  students,
+  marks,
+  grades,
+  subjects,
+  config,
+  exportPDF
+}) => {
+  const [selectedGradeGroup, setSelectedGradeGroup] = useState('All');
+  const [selectedLimit, setSelectedLimit] = useState(10);
+  const [filterType, setFilterType] = useState<'overall' | 'boys' | 'girls' | 'by_section' | 'by_grade'>('overall');
+
+  // Compute live ranks client side
+  const meritRanks = React.useMemo(() => {
+    if (students.length === 0 || marks.length === 0) return [];
+
+    let filtered = students;
+    if (selectedGradeGroup !== 'All') {
+      filtered = students.filter(s => s.grade === selectedGradeGroup);
+    }
+
+    // Map averages using strict assigned grade subject checks
+    const computedList = filtered.map(student => {
+      const studentMarks = marks.filter(m => m.studentId === student.studentId);
+      const studentGradeObj = grades.find(g => g.name === student.grade && g.section === student.section);
+      const assignedSubjectIds = studentGradeObj?.subjectIds || [];
+
+      if (assignedSubjectIds.length === 0) return null;
+
+      let scoreSum = 0;
+      let matchedCount = 0;
+
+      assignedSubjectIds.forEach(subId => {
+        const mk = studentMarks.find(m => m.subjectId === subId);
+        if (mk) {
+          scoreSum += (mk.semester1 + mk.semester2) / 2;
+          matchedCount++;
+        }
+      });
+
+      const averageScore = matchedCount > 0 ? scoreSum / assignedSubjectIds.length : 0;
+      const passThreshold = config?.passMark ?? 50;
+
+      return {
+        id: student.id,
+        studentId: student.studentId,
+        name: student.name,
+        sex: student.sex,
+        grade: student.grade,
+        section: student.section,
+        score: averageScore,
+        passed: averageScore >= passThreshold
+      };
+    }).filter(Boolean) as any[];
+
+    // Sort descending by averageScore
+    const sorted = [...computedList].sort((a, b) => b.score - a.score);
+
+    // Apply Filter Toggles
+    if (filterType === 'boys') {
+      return sorted.filter(s => s.sex === 'M').slice(0, selectedLimit);
+    } else if (filterType === 'girls') {
+      return sorted.filter(s => s.sex === 'F').slice(0, selectedLimit);
+    } else if (filterType === 'by_section') {
+      // Group by section, choose top student from each section
+      const map: Record<string, any> = {};
+      sorted.forEach(s => {
+        const key = `${s.grade}${s.section}`;
+        if (!map[key]) map[key] = s;
+      });
+      return Object.values(map).sort((a, b) => b.score - a.score);
+    } else if (filterType === 'by_grade') {
+      // Group by grade, choose top student from each grade
+      const map: Record<string, any> = {};
+      sorted.forEach(s => {
+        if (!map[s.grade]) map[s.grade] = s;
+      });
+      return Object.values(map).sort((a, b) => b.score - a.score);
+    } else {
+      return sorted.slice(0, selectedLimit);
+    }
+  }, [students, marks, grades, selectedGradeGroup, selectedLimit, filterType, config]);
+
+  const reportTitle = React.useMemo(() => {
+    const scope = selectedGradeGroup === 'All' ? 'School-Wide' : `Grade ${selectedGradeGroup}`;
+    const typeLabel = 
+      filterType === 'boys' ? 'Top Boys' :
+      filterType === 'girls' ? 'Top Girls' :
+      filterType === 'by_section' ? 'Top Student per Section' :
+      filterType === 'by_grade' ? 'Top Student per Grade' : `Top ${selectedLimit} Overall`;
+    return `${scope} Merit Rank List - ${typeLabel}`;
+  }, [selectedGradeGroup, selectedLimit, filterType]);
+
+  const exportExcel = () => {
+    const dataRows = meritRanks.map((item, idx) => ({
+      'Rank': idx + 1,
+      'Student ID': item.studentId,
+      'Student Name': item.name.toUpperCase(),
+      'Gender': item.sex,
+      'Grade & Section': `${item.grade} - ${item.section}`,
+      'Total Average (%)': parseFloat(item.score.toFixed(2)),
+      'Status': item.passed ? 'PASSED' : 'FAILED'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Merit List');
+    XLSX.writeFile(wb, `${reportTitle.replace(/\s+/g, '-')}.xlsx`);
+    toast.success('Excel Merit list exported successfully!');
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Search filters toolbar */}
+      <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Grade Group</label>
+          <select 
+            value={selectedGradeGroup} 
+            onChange={e => setSelectedGradeGroup(e.target.value)}
+            className="w-full p-3.5 bg-gray-50 border border-gray-150 rounded-2xl font-bold text-xs outline-none"
+          >
+            <option value="All">All Combined Grades</option>
+            {Array.from(new Set(grades.map(g => g.name))).map(g => (
+              <option key={g} value={g}>Grade {g}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-mono">Limit Rows</label>
+          <select 
+            value={selectedLimit} 
+            onChange={e => setSelectedLimit(Number(e.target.value))}
+            className="w-full p-3.5 bg-gray-50 border border-gray-150 rounded-2xl font-bold text-xs outline-none"
+          >
+            <option value={10}>Top 10 Ranks</option>
+            <option value={20}>Top 20 Ranks</option>
+            <option value={50}>Top 50 Ranks</option>
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Filter Toggle Ranks</label>
+          <select 
+            value={filterType} 
+            onChange={e => setFilterType(e.target.value as any)}
+            className="w-full p-3.5 bg-gray-50 border border-gray-150 rounded-2xl font-bold text-xs outline-none"
+          >
+            <option value="overall">Top Overall Students</option>
+            <option value="boys">Top Boys Only</option>
+            <option value="girls">Top Girls Only</option>
+            <option value="by_section">Top Student per Section</option>
+            <option value="by_grade">Top Student per Grade</option>
+          </select>
+        </div>
+
+        <div className="flex gap-2 items-end">
+          <button 
+            onClick={exportExcel}
+            className="flex-grow p-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 border border-emerald-100"
+          >
+            <FileSpreadsheet className="w-4 h-4" /> Excel
+          </button>
+          <button 
+            onClick={() => exportPDF(reportTitle, meritRanks)}
+            className="flex-grow p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-100"
+          >
+            <FileDown className="w-4 h-4" /> PDF
+          </button>
+        </div>
+      </div>
+
+      {/* Ranks Table Card */}
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
+          <h4 className="font-extrabold text-indigo-950 text-sm italic">{reportTitle.toUpperCase()}</h4>
+          <span className="text-[10px] font-black text-gray-400 tracking-widest uppercase">Verified records compiled</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-100/50 border-b border-gray-100 text-gray-400 text-[10px] font-black tracking-wider uppercase">
+                <th className="px-6 py-4 text-center">Rank</th>
+                <th className="px-6 py-4">Student ID</th>
+                <th className="px-6 py-4">Student Name</th>
+                <th className="px-6 py-4 text-center">Gender</th>
+                <th className="px-6 py-4 text-center">Grade & Section</th>
+                <th className="px-6 py-4 text-right">Composite Average</th>
+                <th className="px-6 py-4 text-center">Academic Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {meritRanks.map((item, idx) => (
+                <tr key={item.id} className="hover:bg-indigo-50/20 transition-all font-bold">
+                  <td className="px-6 py-4 text-center">
+                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-black ${
+                      idx === 0 ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                      idx === 1 ? 'bg-slate-150 text-gray-700 border border-gray-200' :
+                      idx === 2 ? 'bg-orange-100 text-orange-850' : 'text-gray-500'
+                    }`}>
+                      {idx + 1}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 font-mono font-black text-indigo-600 text-xs">{item.studentId}</td>
+                  <td className="px-6 py-4 text-gray-800 uppercase tracking-tight">{item.name}</td>
+                  <td className="px-6 py-4 text-center text-xs text-gray-500">{item.sex}</td>
+                  <td className="px-6 py-4 text-center text-xs text-gray-600">Grade {item.grade} - {item.section}</td>
+                  <td className="px-6 py-4 text-right text-sm text-indigo-950 font-extrabold">{item.score.toFixed(2)}%</td>
+                  <td className="px-6 py-4 text-center">
+                    <span className={`inline-block px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                      item.passed ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600'
+                    }`}>
+                      {item.passed ? 'Passed' : 'Failed'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {meritRanks.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-400 italic">No rankings dataset resolved. Click refresh.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ===================================================
+   ADVANCED RE-USABLE ATTENDANCE ANALYTICS COMPONENT
+   =================================================== */
+
+interface AttendanceAnalyticsSectionProps {
+  students: Student[];
+  grades: Grade[];
+  config: SchoolConfig | null;
+  exportPDF: (title: string, data: any[]) => void;
+}
+
+const AttendanceAnalyticsSection: React.FC<AttendanceAnalyticsSectionProps> = ({
+  students,
+  grades,
+  config,
+  exportPDF
+}) => {
+  // Compute analytics locally
+  const analyticsData = React.useMemo(() => {
+    if (students.length === 0) return null;
+
+    const totalStudents = students.length;
+    let totalAbsentDays = 0;
+    let maleAbsents = 0;
+    let femaleAbsents = 0;
+    let maleCount = 0;
+    let femaleCount = 0;
+
+    // Brackets
+    let bracket0_5 = 0;
+    let bracket6_10 = 0;
+    let bracket11_15 = 0;
+    let bracket16_plus = 0;
+
+    // Grades map
+    const gradeAbsentsMap: Record<string, { totalAbs: number; count: number }> = {};
+
+    students.forEach(s => {
+      const abs = s.absent ?? 0;
+      totalAbsentDays += abs;
+
+      if (s.sex === 'M') {
+        maleAbsents += abs;
+        maleCount++;
+      } else {
+        femaleAbsents += abs;
+        femaleCount++;
+      }
+
+      // Brackets checks
+      if (abs <= 5) bracket0_5++;
+      else if (abs <= 10) bracket6_10++;
+      else if (abs <= 15) bracket11_15++;
+      else bracket16_plus++;
+
+      // Grades accumulation
+      const grKey = s.grade;
+      if (!gradeAbsentsMap[grKey]) {
+        gradeAbsentsMap[grKey] = { totalAbs: 0, count: 0 };
+      }
+      gradeAbsentsMap[grKey].totalAbs += abs;
+      gradeAbsentsMap[grKey].count++;
+    });
+
+    const avgAbsentDays = totalAbsentDays / totalStudents;
+    const attendancePercentage = Math.max(0, Math.min(100, (1 - (avgAbsentDays / 180)) * 100));
+
+    // Compile grade breakdown array
+    const gradeBreakdownList = Object.keys(gradeAbsentsMap).map(gr => {
+      const item = gradeAbsentsMap[gr];
+      const avgAbs = item.totalAbs / item.count;
+      const rate = Math.max(0, Math.min(100, (1 - (avgAbs / 180)) * 100));
+      return {
+        grade: gr,
+        avgAbs: parseFloat(avgAbs.toFixed(1)),
+        rate: parseFloat(rate.toFixed(1)),
+        count: item.count,
+        totalAbsents: item.totalAbs
+      };
+    }).sort((a, b) => b.avgAbs - a.avgAbs); // sorted by worse absence first
+
+    const mostAbsentGrade = gradeBreakdownList.length > 0 ? gradeBreakdownList[0].grade : 'None';
+    const leastAbsentGrade = gradeBreakdownList.length > 0 ? gradeBreakdownList[gradeBreakdownList.length - 1].grade : 'None';
+
+    // Roster 10 most absent students list
+    const topAbsentStudents = [...students]
+      .sort((a, b) => (b.absent ?? 0) - (a.absent ?? 0))
+      .slice(0, 10);
+
+    return {
+      totalStudents,
+      totalAbsentDays,
+      avgAbsentDays,
+      attendancePercentage,
+      maleAvg: maleCount > 0 ? maleAbsents / maleCount : 0,
+      femaleAvg: femaleCount > 0 ? femaleAbsents / femaleCount : 0,
+      mostAbsentGrade,
+      leastAbsentGrade,
+      gradeBreakdownList,
+      topAbsentStudents,
+      bracketData: [
+        { name: '0-5 Days Absences', value: bracket0_5, color: '#10B981' },
+        { name: '6-10 Days Absences', value: bracket6_10, color: '#3B82F6' },
+        { name: '11-15 Days Absences', value: bracket11_15, color: '#F59E0B' },
+        { name: '16+ Days Absences', value: bracket16_plus, color: '#EF4444' }
+      ]
+    };
+  }, [students]);
+
+  const handleExportExcel = () => {
+    if (!analyticsData) return;
+    const records = analyticsData.topAbsentStudents.map((item, idx) => ({
+      'S.No': idx + 1,
+      'Student ID': item.studentId,
+      'Student Name': item.name.toUpperCase(),
+      'Gender': item.sex,
+      'Grade': item.grade,
+      'Section': item.section,
+      'Absent Days': item.absent ?? 0,
+      'Attendance Rate (%)': parseFloat((100 - ((item.absent ?? 0) / 180 * 100)).toFixed(1))
+    }));
+    const ws = XLSX.utils.json_to_sheet(records);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Absent Registrars');
+    XLSX.writeFile(wb, `Attendance-Absentees-Roster.xlsx`);
+    toast.success('Attendance Excel summary compiled successfully!');
+  };
+
+  if (!analyticsData) {
+    return (
+      <div className="p-12 text-center text-gray-400 italic font-bold">
+        No campus students data registered. Please populate students and record "Hafte".
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8 text-gray-950">
+      {/* Cards stats row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-3xl border border-gray-105 shadow-sm">
+          <span className="text-[10px] uppercase font-black text-gray-400 tracking-wider block">Total Absent Days Sum</span>
+          <p className="text-3xl font-black text-indigo-950 tracking-tight mt-3">{analyticsData.totalAbsentDays} Days</p>
+          <span className="text-[9px] text-gray-400 font-bold block mt-1 uppercase">Across entire Chercher census</span>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-gray-105 shadow-sm">
+          <span className="text-[10px] uppercase font-black text-gray-400 tracking-wider block">Average Absence Days / Pupil</span>
+          <p className="text-3xl font-black text-indigo-650 tracking-tight mt-3">{analyticsData.avgAbsentDays.toFixed(1)} Days</p>
+          <span className="text-[9px] text-indigo-400 font-bold block mt-1 uppercase">Average loss of academic velocity</span>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-gray-105 shadow-sm">
+          <span className="text-[10px] uppercase font-black text-emerald-650 tracking-wider block">Attendance Integrity Rate</span>
+          <p className="text-3xl font-black text-emerald-600 tracking-tight mt-3">{analyticsData.attendancePercentage.toFixed(1)}%</p>
+          <span className="text-[9px] text-emerald-500 font-bold block mt-1 uppercase">Standard 180 calendar days benchmark</span>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-gray-105 shadow-sm flex flex-col justify-between">
+          <div>
+            <span className="text-[10px] uppercase font-black text-gray-400 tracking-wider block">Surveillance Grade Extreme</span>
+            <div className="flex gap-4 mt-2 font-bold text-xs uppercase">
+              <div>
+                <span className="text-[8px] text-red-500 block">Lowest</span>
+                <span className="text-red-700 bg-red-50 px-2 py-0.5 rounded">Grade {analyticsData.mostAbsentGrade}</span>
+              </div>
+              <div className="border-l pl-3">
+                <span className="text-[8px] text-emerald-500 block">Highest</span>
+                <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">Grade {analyticsData.leastAbsentGrade}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Genders averages compares card */}
+      <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div>
+          <h4 className="font-extrabold text-sm uppercase text-gray-800 tracking-wide border-b pb-3 mb-4">Gender Attendance Variance</h4>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center bg-gray-50/50 p-4 rounded-2xl border border-gray-100 font-bold text-sm">
+              <span className="text-gray-500">Boys (Male Averaged Absences)</span>
+              <span className="text-indigo-600">{analyticsData.maleAvg.toFixed(1)} Days</span>
+            </div>
+            <div className="flex justify-between items-center bg-gray-50/50 p-4 rounded-2xl border border-gray-100 font-bold text-sm">
+              <span className="text-gray-500">Girls (Female Averaged Absences)</span>
+              <span className="text-rose-600">{analyticsData.femaleAvg.toFixed(1)} Days</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center p-4 bg-gray-50/40 rounded-2xl border border-gray-100">
+          <p className="text-xs text-gray-500 leading-normal text-center font-semibold">
+            📊 **Gender Action Surveillance Summary**: Boys average {analyticsData.maleAvg.toFixed(1)} absent terms compared to girls who average {analyticsData.femaleAvg.toFixed(1)} intervals. Disparities indicate social, agricultural or transport issues. Set up counsel actions to keep students in classroom seats.
+          </p>
+        </div>
+      </div>
+
+      {/* Recharts Analytics distribution visualization */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Distribution brackets pie chart */}
+        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
+          <h4 className="font-extrabold text-xs uppercase tracking-wider text-gray-400 mb-6">Attendance Brackets Distribution</h4>
+          <div className="h-48 flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={analyticsData.bracketData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={75}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {analyticsData.bracketData.map((entry, idx) => (
+                    <Cell key={entry.name} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => [`${value} Students`, 'Count']} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="space-y-1.5 mt-4 text-[10px] font-bold uppercase grid grid-cols-2 gap-2">
+            {analyticsData.bracketData.map(bracket => (
+              <div key={bracket.name} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: bracket.color }} />
+                <span className="text-gray-600">{bracket.name}: {bracket.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Grade attendance line metric */}
+        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm lg:col-span-2">
+          <h4 className="font-extrabold text-xs uppercase tracking-wider text-gray-400 mb-6 font-mono">Absent Days Averages across Grade cohorts</h4>
+          <div className="h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={analyticsData.gradeBreakdownList}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="grade" tick={{ fill: '#64748b', fontWeight: 600, fontSize: 10 }} />
+                <YAxis tick={{ fill: '#64748b', fontSize: 10 }} unit="D" />
+                <Tooltip />
+                <Area type="monotone" dataKey="avgAbs" stroke="#4f46e5" fill="#e0e7ff" strokeWidth={3.5} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* Lists Splitter Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+        
+        {/* TOP 10 Absent list */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col justify-between">
+          <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-gray-50/55">
+            <h4 className="font-extrabold text-indigo-950 text-sm">Top 10 Most Absent Students Registered</h4>
+            <div className="flex gap-2">
+              <button onClick={handleExportExcel} className="p-2 hover:bg-gray-200.5 text-gray-500 rounded bg-gray-100 border border-gray-200 text-[10px] font-black uppercase">
+                Excel
+              </button>
+              <button 
+                onClick={() => exportPDF('Top 10 Most Absent Students', analyticsData.topAbsentStudents)} 
+                className="p-2 hover:bg-indigo-700 text-white rounded bg-indigo-600 text-[10px] font-black uppercase"
+              >
+                PDF
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto flex-grow">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-gray-100/50 text-gray-405 text-[9px] uppercase tracking-wider font-extrabold border-b border-gray-50">
+                  <th className="px-6 py-3 text-center">S.No</th>
+                  <th className="px-6 py-3">Student Name</th>
+                  <th className="px-6 py-3 text-center">Gender</th>
+                  <th className="px-6 py-3 text-center">Grade</th>
+                  <th className="px-6 py-3 text-right">Absent Days</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 font-semibold text-xs text-gray-800">
+                {analyticsData.topAbsentStudents.map((item, idx) => (
+                  <tr key={item.id} className="hover:bg-red-50/20 transition-all">
+                    <td className="px-6 py-3 text-center font-bold text-gray-400">{idx + 1}</td>
+                    <td className="px-6 py-3 uppercase font-extrabold">{item.name}</td>
+                    <td className="px-6 py-3 text-center">{item.sex}</td>
+                    <td className="px-6 py-3 text-center">Grade {item.grade}{item.section}</td>
+                    <td className="px-6 py-3 text-right font-mono text-red-600 font-extrabold">{item.absent ?? 0} Days</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Grade Breakdowns tabular overview */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col justify-between">
+          <div className="p-6 border-b border-gray-50 bg-gray-50/55">
+            <h4 className="font-extrabold text-indigo-950 text-sm">Attendance Summary by Grade level</h4>
+          </div>
+
+          <div className="overflow-x-auto flex-grow">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-gray-100/50 text-gray-405 text-[9px] uppercase tracking-wider font-extrabold border-b border-gray-50">
+                  <th className="px-6 py-3">Grade Level</th>
+                  <th className="px-6 py-3 text-center">Total Students</th>
+                  <th className="px-6 py-3 text-center">Total Absents</th>
+                  <th className="px-6 py-3 text-right">Averaged Absences</th>
+                  <th className="px-6 py-3 text-right">Attendance Rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 font-semibold text-xs text-gray-800">
+                {analyticsData.gradeBreakdownList.map(item => (
+                  <tr key={item.grade} className="h-10 hover:bg-indigo-50/10">
+                    <td className="px-6 py-3 uppercase font-extrabold">Grade {item.grade}</td>
+                    <td className="px-6 py-3 text-center font-mono">{item.count}</td>
+                    <td className="px-6 py-3 text-center font-mono">{item.totalAbsents}</td>
+                    <td className="px-6 py-3 text-right font-mono">{item.avgAbs.toFixed(1)} Days</td>
+                    <td className="px-6 py-3 text-right font-mono text-emerald-600 font-extrabold">{item.rate.toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
 
 // Unified Metric card for clean design
 const MetricCard = ({ label, subLabel, value, icon: Icon, color }: { label: string; subLabel: string; value: string | number; icon: any; color: string }) => {

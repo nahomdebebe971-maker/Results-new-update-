@@ -1,6 +1,6 @@
 {
   "name": "CHERCHER SECONDARY SCHOOL Result Management System",
   "description": "A comprehensive school result management system for Chercher Secondary School with Admin, Teacher, and Student portals.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
