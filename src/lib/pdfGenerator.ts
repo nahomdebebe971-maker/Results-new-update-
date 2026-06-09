@@ -157,7 +157,9 @@ export const drawSingleTranscriptPage = async (
   doc.text('VERIFY DOCUMENT', vBoxX + vBoxW/2, headerY + 5, { align: 'center' });
 
   const passMark = config.passMark || 50;
-  const verificationId = `TRX-${student.studentId}-${config.academicYear.replace(/\s+/g, '')}`;
+  
+  // Use official verification ID if provided, fallback to standard pattern for non-published drafts
+  const verificationId = student.verificationId || `TRX-${student.studentId}-${config.academicYear.replace(/\s+/g, '')}`;
   const verificationUrl = `${window.location.origin}/verify#verify-${verificationId}`;
   
   try {
@@ -385,14 +387,23 @@ export const drawSingleTranscriptPage = async (
   
   // Stamp Area
   const stampX = 12 + colW + 2;
+  doc.setFontSize(9);
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Official School Stamp', stampX + colW/2, signY + 5, { align: 'center' });
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('(Mallattoo Mana Barumsaa)', stampX + colW/2, signY + 9, { align: 'center' });
+
   if (stampImg) {
-    doc.addImage(stampImg, 'PNG', stampX + colW/2 - 15, signY + 15, 30, 30);
+    doc.addImage(stampImg, 'PNG', stampX + colW/2 - 15, signY + 12, 30, 30);
   } else {
     doc.setDrawColor(226, 232, 240);
-    doc.rect(stampX + 5, signY + 12, colW - 10, 35, 'S');
+    doc.setLineWidth(0.2);
+    doc.roundedRect(stampX + colW/2 - 17.5, signY + 12, 35, 35, 17.5, 17.5, 'S'); // Circular placeholder
     doc.setFontSize(6);
     doc.setTextColor(200, 205, 215);
-    doc.text('OFFICIAL STAMP', stampX + colW/2, signY + 30, { align: 'center' });
+    doc.text('STAMP AREA', stampX + colW/2, signY + 30, { align: 'center' });
   }
 
   drawSignBlock(12 + (colW + 2) * 2, 'School Director', 'Maamila Mana Barumsaa', config.directorName || '________________');
@@ -448,7 +459,8 @@ export const generateAllStudentTranscriptsForGrade = async (
   config: SchoolConfig,
   subjects: Subject[],
   gradeName: string,
-  sectionName: string
+  sectionName: string,
+  homeroomTeacherName: string = '________________'
 ) => {
   const doc = new jsPDF('p', 'mm', 'a4');
   let logoImg: HTMLImageElement | null = null;
@@ -462,7 +474,7 @@ export const generateAllStudentTranscriptsForGrade = async (
   }
   
   for (let i = 0; i < studentsList.length; i++) {
-    await drawSingleTranscriptPage(doc, studentsList[i], config, subjects, logoImg, stampImg);
+    await drawSingleTranscriptPage(doc, studentsList[i], config, subjects, logoImg, stampImg, homeroomTeacherName);
     if (i < studentsList.length - 1) {
       doc.addPage();
     }

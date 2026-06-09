@@ -5,7 +5,11 @@ import { collection, getDocs, writeBatch, doc, getDoc, setDoc, addDoc } from 'fi
 import { db } from '../lib/firebase';
 import { toast } from 'react-hot-toast';
 
+import { logAction } from '../lib/auditService';
+import { useAuth } from '../hooks/useAuth';
+
 export const SchoolSettings: React.FC = () => {
+  const { user } = useAuth();
   const { config, updateConfig } = useSchoolConfig();
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -74,13 +78,15 @@ export const SchoolSettings: React.FC = () => {
       linkElement.remove();
 
       // Log to audits
-      await addDoc(collection(db, 'auditLogs'), {
-        action: 'DATABASE_BACKUP_EXPORT',
-        timestamp: new Date().toISOString(),
-        userEmail: 'admin@school.com',
-        status: 'SUCCESS',
-        description: `Exported ${Object.keys(backupData).length} system collections`
-      });
+      if (user) {
+        await logAction(
+          user.uid,
+          user.email || '',
+          'SETTINGS_CHANGE',
+          `Exported system backup: ${Object.keys(backupData).length} collections`,
+          'BACKUP'
+        );
+      }
 
       toast.success('System backup snapshot generated and downloaded!');
     } catch (err) {
@@ -154,12 +160,15 @@ export const SchoolSettings: React.FC = () => {
       }
 
       // Log event to Audits log
-      await addDoc(collection(db, 'auditLogs'), {
-        action: 'DATABASE_BACKUP_RESTORE',
-        timestamp: new Date().toISOString(),
-        userEmail: 'admin@school.com',
-        status: 'SUCCESS'
-      });
+      if (user) {
+        await logAction(
+          user.uid,
+          user.email || '',
+          'SETTINGS_CHANGE',
+          'Restored system state from backup payload',
+          'RESTORE'
+        );
+      }
 
       toast.success('School state fully restored from backup payload! Reload lists.', { duration: 6000 });
       setRestoreConfirmOpen(false);
@@ -196,6 +205,17 @@ export const SchoolSettings: React.FC = () => {
 
     try {
       await updateConfig(updates);
+      
+      if (user) {
+        await logAction(
+          user.uid,
+          user.email || '',
+          'SETTINGS_CHANGE',
+          'Updated global school configuration settings',
+          'CONFIG'
+        );
+      }
+
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -227,6 +247,16 @@ export const SchoolSettings: React.FC = () => {
         await batch.commit();
       }
       
+      if (user) {
+        await logAction(
+          user.uid,
+          user.email || '',
+          'SETTINGS_CHANGE',
+          `Performed Factory Data Reset. Cleared ${totalDeleted} records.`,
+          'RESET'
+        );
+      }
+
       toast.success('System reset completed. All academic records cleared.');
       setShowConfirmReset(false);
     } catch (err) {

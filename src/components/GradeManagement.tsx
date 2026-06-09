@@ -194,7 +194,8 @@ export const GradeManagement: React.FC = () => {
         await generateRosterExcel(studentsList, subjectsList, config, `${grade.name}${grade.section}`, grades);
         toast.success('Roster Excel generated successfully!', { id: toastId });
       } else if (action === 'transcripts-pdf') {
-        await generateAllStudentTranscriptsForGrade(studentsList, config, subjectsList, grade.name, grade.section);
+        const htName = grade?.homeroomTeacher || '________________';
+        await generateAllStudentTranscriptsForGrade(studentsList, config, subjectsList, grade.name, grade.section, htName);
         toast.success('All Student Transcripts generated successfully!', { id: toastId });
       }
     } catch (err) {

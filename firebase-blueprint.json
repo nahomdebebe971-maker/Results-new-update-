@@ -16,16 +16,72 @@
       },
       "required": ["schoolName", "academicYear", "passMark"]
     },
+    "AdminAccount": {
+      "title": "Admin Account",
+      "description": "System administrator roles",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["superadmin", "admin"] },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
     "Teacher": {
       "title": "Teacher",
-      "description": "Information about a school teacher",
+      "description": "Information about a school teacher with assignments",
       "type": "object",
       "properties": {
         "name": { "type": "string" },
         "teacherId": { "type": "string" },
+        "uid": { "type": "string" },
+        "assignedSubjects": { "type": "array" },
+        "assignedClasses": { "type": "array" },
+        "homeroomTeacherFor": { "type": "object" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "teacherId"]
+    },
+    "PublishedResult": {
+      "title": "Published Result",
+      "description": "Finalized, read-optimized student result document",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "verificationId": { "type": "string" },
+        "studentProfile": { "type": "object" },
+        "results": { "type": "object" },
+        "summaries": { "type": "object" },
+        "conduct": { "type": "string" },
+        "absent": { "type": "number" },
+        "recommendation": { "type": "string" },
+        "publishedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "verificationId"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "System action tracking",
+      "type": "object",
+      "properties": {
+        "user": { "type": "string" },
+        "role": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "object" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "AnalyticsCache": {
+      "title": "Analytics Cache",
+      "description": "Pre-calculated analytics data",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "data": { "type": "object" },
+        "calculatedAt": { "type": "string", "format": "date-time" }
+      }
     },
     "Grade": {
       "title": "Grade & Section",
@@ -101,9 +157,25 @@
       "schema": "SchoolConfig",
       "description": "Global school configuration"
     },
+    "/adminAccounts/{uid}": {
+      "schema": "AdminAccount",
+      "description": "System administrator accounts"
+    },
     "/teachers/{teacherId}": {
       "schema": "Teacher",
-      "description": "Registered teachers"
+      "description": "Registered teachers with assignments"
+    },
+    "/publishedResults/{verificationId}": {
+      "schema": "PublishedResult",
+      "description": "Locked student results for portal access"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System activity logs"
+    },
+    "/analyticsCache/{cacheId}": {
+      "schema": "AnalyticsCache",
+      "description": "Pre-calculated performance data"
     },
     "/grades/{gradeId}": {
       "schema": "Grade",

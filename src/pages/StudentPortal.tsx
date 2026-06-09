@@ -127,7 +127,34 @@ export const StudentPortal: React.FC = () => {
     return 'Poor Performance (Gargaarsa Olaana Barbaada)';
   };
 
+  const [searchCount, setSearchCount] = useState(0);
+
+  const checkRateLimit = () => {
+    const limit = 20;
+    const windowMs = 60 * 1000;
+    const now = Date.now();
+    const rateDataStr = localStorage.getItem('student_search_ratelimit');
+    let rateData = rateDataStr ? JSON.parse(rateDataStr) : { count: 0, firstRequest: now };
+
+    if (now - rateData.firstRequest > windowMs) {
+      rateData = { count: 1, firstRequest: now };
+    } else {
+      rateData.count += 1;
+    }
+
+    localStorage.setItem('student_search_ratelimit', JSON.stringify(rateData));
+
+    if (rateData.count > limit) {
+      const waitSec = Math.ceil((windowMs - (now - rateData.firstRequest)) / 1000);
+      setError(`Rate limit exceeded. Please wait ${waitSec} seconds before searching again.`);
+      return false;
+    }
+    return true;
+  };
+
   const performUnifiedSearch = async (providedId: string, providedName?: string, isFromQR = false) => {
+    if (!checkRateLimit()) return;
+    
     const targetId = providedId.trim().toUpperCase();
     const targetName = providedName?.trim().toUpperCase();
 
@@ -153,6 +180,14 @@ export const StudentPortal: React.FC = () => {
       const trafficData = tSnap.exists() ? tSnap.data() : { activeRequests: 0, maxActiveRequests: 50 };
       const activeRequests = trafficData.activeRequests || 0;
       const maxActiveRequests = trafficData.maxActiveRequests || 50;
+
+      // 3. Virtual Queue logic for high demand
+      if (activeRequests >= maxActiveRequests) {
+        setInQueue(true);
+        const waitTime = Math.floor(Math.random() * 5000) + 2000; // 2-7 second wait
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        setInQueue(false);
+      }
 
       // 3. Check sessionStorage cache if not QR (QR ignores name verification so cache might be incomplete)
       if (!isFromQR) {

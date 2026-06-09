@@ -22,24 +22,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const [password, setPassword] = useState('');
 
   // Teacher state
-  const [teacherName, setTeacherName] = useState('');
   const [teacherId, setTeacherId] = useState('');
+  const [teacherPass, setTeacherPass] = useState('');
 
   const handleTeacherLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      await loginTeacher(teacherName, teacherId);
+      await loginTeacher(teacherId, teacherPass);
       onClose();
     } catch (err: any) {
       console.error('Teacher Auth Error:', err);
-      // Check for common Firestore error codes
-      if (err.code === 'permission-denied') {
-        setError('System Permission Error: Please check database rules or contact admin.');
-      } else {
-        setError(err.message || 'Failed to login as Teacher');
-      }
+      setError(err.message || 'Failed to login as Teacher');
     } finally {
       setLoading(false);
     }
@@ -161,20 +156,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 ) : (
                   <>
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Teacher Name</label>
-                      <div className="relative">
-                        <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input 
-                          type="text"
-                          required
-                          value={teacherName}
-                          onChange={e => setTeacherName(e.target.value)}
-                          className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition-all shadow-inner"
-                          placeholder="Enter your full name"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Teacher ID</label>
                       <div className="relative">
                         <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -188,8 +169,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                         />
                       </div>
                     </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Internal Password</label>
+                      <div className="relative">
+                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input 
+                          type="password"
+                          required
+                          value={teacherPass}
+                          onChange={e => setTeacherPass(e.target.value)}
+                          className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition-all shadow-inner"
+                          placeholder="••••••••"
+                        />
+                      </div>
+                    </div>
                     <p className="text-[10px] text-gray-400 text-center uppercase font-bold tracking-tighter">
-                      Use your teacher ID as your password if prompted elsewhere.
+                      Teachers use their registered school credentials.
                     </p>
                   </>
                 )}

@@ -23,11 +23,48 @@ export const VerificationPage: React.FC<{ verificationId: string }> = ({ verific
   const [data, setData] = useState<VerificationData | null>(null);
   const [errorStr, setErrorStr] = useState<string | null>(null);
 
+  const checkRateLimit = () => {
+    const limit = 30;
+    const windowMs = 60 * 1000;
+    const now = Date.now();
+    const rateDataStr = localStorage.getItem('verification_search_ratelimit');
+    let rateData = rateDataStr ? JSON.parse(rateDataStr) : { count: 0, firstRequest: now };
+
+    if (now - rateData.firstRequest > windowMs) {
+      rateData = { count: 1, firstRequest: now };
+    } else {
+      rateData.count += 1;
+    }
+
+    localStorage.setItem('verification_search_ratelimit', JSON.stringify(rateData));
+
+    if (rateData.count > limit) {
+      const waitSec = Math.ceil((windowMs - (now - rateData.firstRequest)) / 1000);
+      setErrorStr(`Security Alert: Scanner rate limit exceeded. Please wait ${waitSec} seconds before scanning again.`);
+      return false;
+    }
+    return true;
+  };
+
   useEffect(() => {
+    if (!checkRateLimit()) {
+      setLoading(false);
+      return;
+    }
+    
     const fetchVerification = async () => {
       setLoading(true);
       setErrorStr(null);
       try {
+        // High Load Traffic Check
+        const trafficRef = doc(db, 'systemConfiguration', 'traffic');
+        const tSnap = await getDoc(trafficRef);
+        const trafficData = tSnap.exists() ? tSnap.data() : { activeRequests: 0, maxActiveRequests: 50 };
+        if ((trafficData.activeRequests || 0) >= (trafficData.maxActiveRequests || 50)) {
+           // Simulate wait for high load
+           await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+        }
+
         const docRef = doc(db, 'verificationCache', verificationId);
         const snap = await getDoc(docRef);
         

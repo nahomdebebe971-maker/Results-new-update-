@@ -6,7 +6,11 @@ import { Teacher } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 
+import { logAction } from '../lib/auditService';
+import { useAuth } from '../hooks/useAuth';
+
 export const TeacherManagement: React.FC = () => {
+  const { user } = useAuth();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -29,11 +33,22 @@ export const TeacherManagement: React.FC = () => {
 
     if (!cleanName || !cleanId) return;
     try {
-      await addDoc(collection(db, 'teachers'), {
+      const docRef = await addDoc(collection(db, 'teachers'), {
         name: cleanName,
         teacherId: cleanId,
         createdAt: new Date().toISOString(),
       });
+      
+      if (user) {
+        await logAction(
+          user.uid,
+          user.email || '',
+          'TEACHER_EDIT',
+          `Registered new teacher: ${cleanName} (${cleanId})`,
+          docRef.id
+        );
+      }
+      
       setFormData({ name: '', teacherId: '' });
       setShowAdd(false);
     } catch (err) {
@@ -41,9 +56,19 @@ export const TeacherManagement: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Delete this teacher record?')) {
+  const handleDelete = async (id: string, name: string) => {
+    if (window.confirm(`Delete teacher record for ${name}?`)) {
       await deleteDoc(doc(db, 'teachers', id));
+      
+      if (user) {
+        await logAction(
+          user.uid,
+          user.email || '',
+          'TEACHER_EDIT',
+          `Deleted teacher record: ${name}`,
+          id
+        );
+      }
     }
   };
 
@@ -169,7 +194,7 @@ export const TeacherManagement: React.FC = () => {
                 </td>
                 <td className="px-8 py-4 text-right">
                   <button 
-                    onClick={() => handleDelete(teacher.id)}
+                    onClick={() => handleDelete(teacher.id, teacher.name)}
                     className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
                   >
                     <Trash2 className="w-5 h-5" />

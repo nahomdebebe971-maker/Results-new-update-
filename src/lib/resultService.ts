@@ -3,6 +3,8 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { Student, Mark, SchoolConfig, Subject, Grade } from '../types';
+import { logAction } from './auditService';
+import { auth } from './firebase';
 
 export const incrementCacheVersion = async () => {
   try {
@@ -175,10 +177,12 @@ export const publishGradeResults = async (gradeId: string, publish: boolean, con
     });
 
     // Create /publishedResults/ST123456 document
+    const verificationId = crypto.randomUUID();
     const pubRef = doc(db, 'publishedResults', s.studentId);
     batch.set(pubRef, {
       id: s.id,
       studentId: s.studentId,
+      verificationId,
       studentName: s.studentName,
       name: s.studentName,
       grade: s.grade,
@@ -197,7 +201,6 @@ export const publishGradeResults = async (gradeId: string, publish: boolean, con
     });
 
     // Create /verificationCache record for transcript verification
-    const verificationId = `TRX-${s.studentId}-${config.academicYear.replace(/\s+/g, '')}`;
     const vRef = doc(db, 'verificationCache', verificationId);
     batch.set(vRef, {
       verificationId,
@@ -217,6 +220,16 @@ export const publishGradeResults = async (gradeId: string, publish: boolean, con
 
   await batch.commit();
   await incrementCacheVersion();
+  
+  if (auth.currentUser) {
+    await logAction(
+      auth.currentUser.uid, 
+      auth.currentUser.email || '', 
+      'PUBLICATION', 
+      `${publish ? 'Published' : 'Unpublished'} results for grade ${gradeName} ${section}`,
+      gradeId
+    );
+  }
 };
 
 export const calculateResultsForGrade = async (gradeName: string, section: string, config: SchoolConfig) => {
@@ -346,10 +359,12 @@ export const calculateResultsForGrade = async (gradeName: string, section: strin
     });
 
     if (isPublished) {
+      const verificationId = crypto.randomUUID();
       const pubRef = doc(db, 'publishedResults', s.studentId);
       batch.set(pubRef, {
         id: s.id,
         studentId: s.studentId,
+        verificationId,
         studentName: s.studentName,
         name: s.studentName,
         grade: s.grade,
@@ -367,7 +382,6 @@ export const calculateResultsForGrade = async (gradeName: string, section: strin
       });
 
       // Create /verificationCache record for transcript verification
-      const verificationId = `TRX-${s.studentId}-${config.academicYear.replace(/\s+/g, '')}`;
       const vRef = doc(db, 'verificationCache', verificationId);
       batch.set(vRef, {
         verificationId,
@@ -388,5 +402,15 @@ export const calculateResultsForGrade = async (gradeName: string, section: strin
 
   await batch.commit();
   await incrementCacheVersion();
+
+  if (auth.currentUser) {
+    await logAction(
+      auth.currentUser.uid, 
+      auth.currentUser.email || '', 
+      'PUBLICATION', 
+      `Recalculated results for grade ${gradeName} ${section}`,
+      gradeId || 'multi'
+    );
+  }
 };
 

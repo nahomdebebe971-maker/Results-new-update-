@@ -37,10 +37,22 @@ export interface SchoolConfig {
   rosterFooterTables?: RosterFooterTable[];
 }
 
+export interface AdminAccount {
+  uid: string;
+  email: string;
+  role: 'superadmin' | 'admin';
+  active: boolean;
+  createdAt: string;
+}
+
 export interface Teacher {
   id: string;
   name: string;
   teacherId: string;
+  uid?: string;
+  assignedSubjects?: string[];
+  assignedClasses?: string[]; // grade_section format
+  homeroomTeacherFor?: { grade: string; section: string };
   createdAt: string;
 }
 
@@ -101,6 +113,7 @@ export interface Student {
   final?: SemesterSummary;
   conduct?: string;
   absent?: number;
+  verificationId?: string;
   createdAt: string;
 }
 
@@ -114,6 +127,38 @@ export interface Mark {
   semester2: number;
   teacherId?: string;
   updatedAt: string;
+}
+
+export interface PublishedResult {
+  studentId: string;
+  verificationId: string;
+  studentProfile: Partial<Student>;
+  results: StudentResults;
+  summaries: {
+    semester1?: SemesterSummary;
+    semester2?: SemesterSummary;
+    final?: SemesterSummary;
+  };
+  conduct: string;
+  absent: number;
+  recommendation: string;
+  publishedAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  user: string;
+  role: string;
+  action: string;
+  details: any;
+  timestamp: string;
+}
+
+export interface AnalyticsCache {
+  id: string;
+  type: 'SCHOOL' | 'GRADE' | 'SUBJECT';
+  data: any;
+  calculatedAt: string;
 }
 
 export type UserRole = 'ADMIN' | 'TEACHER' | 'STUDENT';

@@ -12,8 +12,10 @@ import { calculateResultsForGrade } from '../lib/resultService';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { toast } from 'react-hot-toast';
 
+import { logAction } from '../lib/auditService';
+
 export const TeacherPortal: React.FC = () => {
-  const { teacherId, teacherName } = useAuth();
+  const { user, teacherId, teacherName } = useAuth();
   const { config } = useSchoolConfig();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -196,6 +198,16 @@ export const TeacherPortal: React.FC = () => {
         await calculateResultsForGrade(selectedAssignment.gradeName, selectedAssignment.section, config);
       }
 
+      if (user) {
+        await logAction(
+          user.uid, 
+          user.email || '', 
+          'GRADE_EDIT', 
+          `Updated marks for ${selectedAssignment.subjectName} in Grade ${selectedAssignment.gradeName}${selectedAssignment.section}`,
+          selectedAssignment.id
+        );
+      }
+
       setSaveSuccess(true);
       toast.success('Marks saved and results updated!');
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -291,6 +303,16 @@ export const TeacherPortal: React.FC = () => {
 
       if (config) {
         await calculateResultsForGrade(homeroomGrade.name, homeroomGrade.section, config);
+      }
+
+      if (user) {
+        await logAction(
+          user.uid, 
+          user.email || '', 
+          'STUDENT_EDIT', 
+          `Updated conduct and attendance for Grade ${homeroomGrade.name}${homeroomGrade.section}`,
+          homeroomGrade.id
+        );
       }
 
       setSaveHomeroomSuccess(true);

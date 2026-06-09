@@ -26,7 +26,11 @@ interface ImportPreview {
   isDuplicate?: boolean;
 }
 
+import { logAction } from '../lib/auditService';
+import { useAuth } from '../hooks/useAuth';
+
 export const StudentManagement: React.FC = () => {
+  const { user } = useAuth();
   const { config } = useSchoolConfig();
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -112,6 +116,26 @@ export const StudentManagement: React.FC = () => {
 
 
 
+  const handleDelete = async (studentId: string, name: string) => {
+    if (window.confirm(`Are you sure you want to delete student record for ${name}?`)) {
+      try {
+        await deleteDoc(doc(db, 'students', studentId));
+        if (user) {
+          await logAction(
+            user.uid,
+            user.email || '',
+            'STUDENT_EDIT',
+            `Deleted student record: ${name} (${studentId})`,
+            studentId
+          );
+        }
+        toast.success('Student deleted.');
+      } catch (err) {
+        toast.error('Failed to delete student.');
+      }
+    }
+  };
+
   const filteredStudents = students.filter(s => 
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     s.studentId.toLowerCase().includes(searchTerm.toLowerCase())
@@ -133,6 +157,17 @@ export const StudentManagement: React.FC = () => {
         studentId,
         createdAt: new Date().toISOString(),
       });
+
+      if (user) {
+        await logAction(
+          user.uid,
+          user.email || '',
+          'STUDENT_EDIT',
+          `Added new student: ${formData.name} (${studentId}) to Grade ${formData.grade}${formData.section}`,
+          studentId
+        );
+      }
+
       setFormData({ name: '', sex: 'M', age: 18, grade: '', section: '' });
       setShowAdd(false);
       toast.success('Student added successfully!');
@@ -280,7 +315,7 @@ export const StudentManagement: React.FC = () => {
                     >
                       <FileDown className="w-5 h-5" />
                     </button>
-                    <button onClick={() => deleteDoc(doc(db, 'students', s.id))} className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all">
+                    <button onClick={() => handleDelete(s.studentId, s.name)} className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all">
                       <Trash2 className="w-5 h-5" />
                     </button>
                   </div>
