@@ -28,6 +28,7 @@ interface ImportPreview {
 
 import { logAction } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
+import { trackOperation } from '../lib/metrics';
 
 export const StudentManagement: React.FC = () => {
   const { user } = useAuth();
@@ -48,6 +49,7 @@ export const StudentManagement: React.FC = () => {
 
   useEffect(() => {
     const qS = query(collection(db, 'students'), orderBy('createdAt', 'desc'));
+    trackOperation('STUDENT_MGT', 'View Student Catalog', { reads: 1 });
     const unsubscribeS = onSnapshot(qS, (snap) => {
       setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student)));
       setLoading(false);
@@ -120,6 +122,7 @@ export const StudentManagement: React.FC = () => {
     if (window.confirm(`Are you sure you want to delete student record for ${name}?`)) {
       try {
         await deleteDoc(doc(db, 'students', studentId));
+        await trackOperation('STUDENT_MGT', `Deleted Student: ${name}`, { deletes: 1, writes: 1 });
         if (user) {
           await logAction(
             user.uid,
@@ -157,6 +160,7 @@ export const StudentManagement: React.FC = () => {
         studentId,
         createdAt: new Date().toISOString(),
       });
+      await trackOperation('STUDENT_MGT', `Added Student: ${formData.name}`, { writes: 1 });
 
       if (user) {
         await logAction(

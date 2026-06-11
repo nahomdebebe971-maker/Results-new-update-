@@ -13,9 +13,11 @@ import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { toast } from 'react-hot-toast';
 
 import { logAction } from '../lib/auditService';
+import { trackOperation } from '../lib/metrics';
+import { createNotification } from '../lib/notificationService';
 
 export const TeacherPortal: React.FC = () => {
-  const { user, teacherId, teacherName } = useAuth();
+  const { user, teacherId, teacherName, assignedSubjects, assignedClasses, homeroomTeacherFor } = useAuth();
   const { config } = useSchoolConfig();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -33,7 +35,7 @@ export const TeacherPortal: React.FC = () => {
 
   // Homeroom variables
   const [homeroomGrade, setHomeroomGrade] = useState<Grade | null>(null);
-  const [homeroomStudentCount, setHomeroomStudentCount] = useState<number>(0);
+  const [homeroomStats, setHomeroomStats] = useState({ total: 0, male: 0, female: 0 });
   const [homeroomStudents, setHomeroomStudents] = useState<Student[]>([]);
   const [homeroomConduct, setHomeroomConduct] = useState<Record<string, string>>({});
   const [homeroomAbsent, setHomeroomAbsent] = useState<Record<string, number>>({});
@@ -60,10 +62,15 @@ export const TeacherPortal: React.FC = () => {
           where('section', '==', myHomeroom.section)
         );
         const sSnap = await getDocs(qStudents);
-        setHomeroomStudentCount(sSnap.size);
+        const slist = sSnap.docs.map(d => d.data() as Student);
+        setHomeroomStats({
+          total: sSnap.size,
+          male: slist.filter(s => s.sex === 'M').length,
+          female: slist.filter(s => s.sex === 'F').length
+        });
       } else {
         setHomeroomGrade(null);
-        setHomeroomStudentCount(0);
+        setHomeroomStats({ total: 0, male: 0, female: 0 });
       }
     });
 
@@ -108,6 +115,7 @@ export const TeacherPortal: React.FC = () => {
     if (passkeyInput === selectedAssignment.passkey) {
       setLoading(true);
       try {
+        await trackOperation('PORTAL_ACCESS', `Verified Marks Access for ${selectedAssignment.subjectName}`, { reads: 2 });
         // Fetch students for THIS specific assignment's grade/section
         const q2 = query(
           collection(db, 'students'),
@@ -176,6 +184,7 @@ export const TeacherPortal: React.FC = () => {
     setSaving(true);
     setSaveSuccess(false);
     try {
+      const studentCount = Object.keys(marks).length;
       for (const [studentId, values] of Object.entries(marks)) {
         const studentMarks = values as { semester1: number, semester2: number, teacherId?: string };
         
@@ -208,6 +217,17 @@ export const TeacherPortal: React.FC = () => {
         );
       }
 
+      await trackOperation('MARK_ENTRY', `Updated marks for ${selectedAssignment.subjectName} (${selectedAssignment.gradeName})`, { writes: studentCount + 1 });
+
+      await createNotification({
+        type: 'MARK_UPDATE',
+        title: 'Marks Entered',
+        message: `${teacherName} updated marks for ${selectedAssignment.subjectName} in Grade ${selectedAssignment.gradeName}${selectedAssignment.section}`,
+        moduleId: `${selectedAssignment.gradeName}${selectedAssignment.section}`,
+        updatedBy: teacherName || 'Teacher',
+        priority: 'medium'
+      });
+
       setSaveSuccess(true);
       toast.success('Marks saved and results updated!');
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -223,6 +243,7 @@ export const TeacherPortal: React.FC = () => {
     if (!homeroomGrade) return;
     setLoading(true);
     try {
+      await trackOperation('PORTAL_ACCESS', 'Opening Homeroom Management', { reads: 1 });
       const q = query(
         collection(db, 'students'),
         where('grade', '==', homeroomGrade.name),
@@ -280,6 +301,7 @@ export const TeacherPortal: React.FC = () => {
     setSaveHomeroomSuccess(false);
     try {
       const { doc, updateDoc, getDoc } = await import('firebase/firestore');
+      const studentCount = homeroomStudents.length;
       
       for (const s of homeroomStudents) {
         const cond = homeroomConduct[s.id] ?? 'A';
@@ -315,6 +337,17 @@ export const TeacherPortal: React.FC = () => {
         );
       }
 
+      await trackOperation('MARK_ENTRY', `Updated conduct/absent for Homeroom ${homeroomGrade.name}`, { writes: studentCount });
+
+      await createNotification({
+        type: 'CONDUCT_UPDATE',
+        title: 'Conduct Updated',
+        message: `${teacherName} updated conduct and attendance for Homeroom ${homeroomGrade.name}${homeroomGrade.section}`,
+        moduleId: `${homeroomGrade.name}${homeroomGrade.section}`,
+        updatedBy: teacherName || 'Teacher',
+        priority: 'low'
+      });
+
       setSaveHomeroomSuccess(true);
       toast.success('Conduct and Attendance Saved Successfully');
       setTimeout(() => setSaveHomeroomSuccess(false), 3000);
@@ -344,42 +377,108 @@ export const TeacherPortal: React.FC = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="space-y-12"
+            className="space-y-10"
           >
-            <div className="text-center max-w-2xl mx-auto">
-              <div className="inline-flex p-4 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-3xl mb-6">
-                <LayoutGrid className="w-8 h-8" />
-              </div>
-              <h1 className="text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight leading-none mb-4">Teaching Assignments</h1>
-              <p className="text-gray-500 dark:text-gray-400 font-medium text-base sm:text-lg">Select a class section to start recording or updating student marks.</p>
+            {/* Professional Welcome Section */}
+            <div className="bg-white dark:bg-gray-900 rounded-[32px] p-8 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col md:flex-row gap-8 items-start md:items-center">
+               <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-white text-3xl font-black shrink-0 shadow-lg shadow-indigo-100 dark:shadow-none">
+                 {teacherName?.charAt(0)}
+               </div>
+               <div className="flex-grow space-y-1">
+                 <h1 className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white tracking-tight">Welcome, Teacher {teacherName}</h1>
+                 <p className="text-gray-500 dark:text-gray-400 font-bold text-xs uppercase tracking-widest flex items-center gap-2">
+                   Portal Access Active <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" /> • {teacherId}
+                 </p>
+                 
+                 <div className="flex flex-wrap gap-3 mt-4">
+                    {assignedSubjects && assignedSubjects.length > 0 && (
+                      <div className="bg-gray-50 dark:bg-gray-850 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-gray-800">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter block leading-none mb-1">Subjects</span>
+                        <div className="flex flex-wrap gap-x-1.5">
+                          {assignedSubjects.map((s, i) => (
+                            <span key={s} className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                              {s}{i < assignedSubjects.length - 1 ? ',' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {assignedClasses && assignedClasses.length > 0 && (
+                      <div className="bg-gray-50 dark:bg-gray-850 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-gray-800">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter block leading-none mb-1">Classes</span>
+                        <div className="flex flex-wrap gap-x-1.5">
+                          {assignedClasses.map((c, i) => (
+                            <span key={c} className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                              {c}{i < assignedClasses.length - 1 ? ',' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                 </div>
+               </div>
             </div>
 
             {homeroomGrade && (
-              <div className="bg-gradient-to-r from-indigo-550 via-indigo-600 to-indigo-750 p-6 sm:p-8 rounded-[32px] border border-indigo-100/10 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative overflow-hidden text-white w-full">
-                <div className="space-y-2 relative z-10">
-                  <span className="bg-white/10 text-white border border-white/20 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full inline-block select-none">
-                    My Homeroom Class
-                  </span>
-                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Grade {homeroomGrade.name}{homeroomGrade.section}</h2>
-                  <p className="text-white/85 font-semibold text-sm sm:text-base">
-                    Total Students assigned: <span className="font-extrabold text-white">{homeroomStudentCount}</span>
-                  </p>
+              <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-indigo-900 p-8 rounded-[40px] shadow-2xl relative overflow-hidden text-white w-full border border-white/10">
+                <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20">
+                       <LayoutGrid className="w-4 h-4" />
+                       <span className="text-xs font-black uppercase tracking-widest">My Class Information</span>
+                    </div>
+                    <div className="space-y-1">
+                      <h2 className="text-4xl sm:text-5xl font-black tracking-tight italic">Grade {homeroomGrade.name}{homeroomGrade.section}</h2>
+                      <p className="text-white/70 font-bold uppercase tracking-widest text-[10px]">Academic Year {config?.academicYear}</p>
+                    </div>
+
+                    <div className="flex gap-6 pt-2">
+                       <div className="bg-white/5 p-4 rounded-3xl border border-white/10 backdrop-blur-sm min-w-24 text-center">
+                          <p className="text-[10px] font-black uppercase text-white/50 mb-1">Total</p>
+                          <p className="text-2xl font-black">{homeroomStats.total}</p>
+                       </div>
+                       <div className="bg-white/5 p-4 rounded-3xl border border-white/10 backdrop-blur-sm min-w-24 text-center">
+                          <p className="text-[10px] font-black uppercase text-indigo-200 mb-1">Male</p>
+                          <p className="text-2xl font-black text-indigo-300">{homeroomStats.male}</p>
+                       </div>
+                       <div className="bg-white/5 p-4 rounded-3xl border border-white/10 backdrop-blur-sm min-w-24 text-center">
+                          <p className="text-[10px] font-black uppercase text-rose-200 mb-1">Female</p>
+                          <p className="text-2xl font-black text-rose-300">{homeroomStats.female}</p>
+                       </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-col gap-3">
+                    <button
+                      onClick={handleOpenHomeroom}
+                      disabled={loading}
+                      className="bg-white hover:bg-white/90 active:scale-95 text-indigo-700 p-6 rounded-[2.5rem] text-sm font-black uppercase tracking-widest shadow-xl flex items-center justify-between transition-all select-none cursor-pointer group"
+                    >
+                      {loading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : (
+                        <>
+                          <span>Conduct & Absent Management</span>
+                          <div className="w-10 h-10 bg-indigo-50 rounded-2xl flex items-center justify-center group-hover:translate-x-2 transition-transform">
+                             <ArrowRight className="w-5 h-5 text-indigo-600" />
+                          </div>
+                        </>
+                      )}
+                    </button>
+                    <p className="text-white/40 text-[9px] font-bold text-center uppercase tracking-widest">
+                      Changes here will reflect on the final student result documents automatically.
+                    </p>
+                  </div>
                 </div>
-                
-                <button
-                  onClick={handleOpenHomeroom}
-                  disabled={loading}
-                  className="bg-white hover:bg-neutral-100 active:scale-95 text-indigo-600 px-6 py-4 rounded-2xl text-sm font-black uppercase tracking-wider shadow-lg flex items-center gap-2 transition-all shrink-0 select-none cursor-pointer self-stretch md:self-auto justify-center"
-                >
-                  {loading ? <Loader2 className="animate-spin w-5 h-5" /> : (
-                    <>
-                      Manage Conduct & Attendance <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-                <div className="absolute right-0 top-0 w-80 h-80 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+                {/* Decorative background blobs */}
+                <div className="absolute -right-20 -top-20 w-96 h-96 bg-white/10 rounded-full blur-[100px] pointer-events-none" />
+                <div className="absolute -left-20 -bottom-20 w-80 h-80 bg-indigo-400/20 rounded-full blur-[80px] pointer-events-none" />
               </div>
             )}
+
+            <div className="pt-4">
+              <h3 className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-6 px-1 flex items-center gap-3">
+                <LayoutGrid className="w-4 h-4" /> Grade Entry & Marksheets
+              </h3>
+            </div>
 
             {(() => {
               const visibleAssignments = assignments.filter(as => {

@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Users, Loader2, FileDown, Search } from 'lucide-react';
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { Plus, Trash2, Users, Loader2, FileDown, Search, FileText } from 'lucide-react';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Teacher } from '../types';
+import { Teacher, SubjectAssignment, SchoolConfig, Grade } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
+import { toast } from 'react-hot-toast';
 
 import { logAction } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
+import { generateTeacherDoc } from '../lib/teacherPdf';
+import { trackOperation } from '../lib/metrics';
 
 export const TeacherManagement: React.FC = () => {
   const { user } = useAuth();
@@ -38,6 +41,7 @@ export const TeacherManagement: React.FC = () => {
         teacherId: cleanId,
         createdAt: new Date().toISOString(),
       });
+      await trackOperation('TEACHER_MGT', `Registered Teacher: ${cleanName}`, { writes: 1 });
       
       if (user) {
         await logAction(
@@ -59,6 +63,7 @@ export const TeacherManagement: React.FC = () => {
   const handleDelete = async (id: string, name: string) => {
     if (window.confirm(`Delete teacher record for ${name}?`)) {
       await deleteDoc(doc(db, 'teachers', id));
+      await trackOperation('TEACHER_MGT', `Removed Teacher: ${name}`, { deletes: 1, writes: 1 });
       
       if (user) {
         await logAction(
@@ -79,6 +84,39 @@ export const TeacherManagement: React.FC = () => {
     XLSX.writeFile(wb, 'Teachers_Roll.xlsx');
   };
 
+  const handleExportPdf = async (specificTeacher?: Teacher) => {
+    try {
+      toast.loading('Preparing teacher documents...', { id: 'pdf-gen' });
+      
+      // Fetch Required Data
+      const [assignSnap, configSnap, gradesSnap, studentSnap] = await Promise.all([
+        getDocs(collection(db, 'assignments')),
+        getDoc(doc(db, 'settings', 'school_config')),
+        getDocs(collection(db, 'grades')),
+        getDocs(collection(db, 'students'))
+      ]);
+
+      const assignments = assignSnap.docs.map(d => ({ id: d.id, ...d.data() } as SubjectAssignment));
+      const config = configSnap.exists() ? configSnap.data() as SchoolConfig : {} as SchoolConfig;
+      const grades = gradesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Grade));
+      
+      const studentCounts: Record<string, number> = {};
+      studentSnap.docs.forEach(d => {
+        const s = d.data();
+        const key = `${s.grade}_${s.section}`;
+        studentCounts[key] = (studentCounts[key] || 0) + 1;
+      });
+
+      const targets = specificTeacher ? [specificTeacher] : teachers;
+      await generateTeacherDoc(targets, assignments, config, grades, studentCounts);
+      
+      toast.success(specificTeacher ? `Document generated for ${specificTeacher.name}` : 'All teacher documents generated', { id: 'pdf-gen' });
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to generate PDF document', { id: 'pdf-gen' });
+    }
+  };
+
   const filteredTeachers = teachers.filter(t => 
     t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     t.teacherId.toLowerCase().includes(searchTerm.toLowerCase())
@@ -92,6 +130,12 @@ export const TeacherManagement: React.FC = () => {
           <p className="text-gray-500 font-medium">Manage your school's teaching staff.</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
+          <button 
+            onClick={() => handleExportPdf()}
+            className="flex items-center gap-2 bg-white text-indigo-600 border border-indigo-100 px-4 py-2.5 rounded-xl font-bold hover:bg-indigo-50 transition-all text-sm"
+          >
+            <FileText className="w-5 h-5" /> Generate All Info Docs
+          </button>
           <button 
             onClick={exportToExcel}
             className="flex items-center gap-2 bg-white text-gray-700 border border-gray-200 px-4 py-2.5 rounded-xl font-bold hover:bg-gray-50 transition-all text-sm"
@@ -145,9 +189,12 @@ export const TeacherManagement: React.FC = () => {
                   type="text" 
                   value={formData.teacherId}
                   onChange={e => setFormData({ ...formData, teacherId: e.target.value })}
-                  placeholder="e.g. TEA-001"
+                  placeholder="e.g. T1001"
                   className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
                 />
+                <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">
+                  Default login passkey: <span className="text-indigo-600">1234</span>
+                </p>
               </div>
               <div className="md:col-span-2 flex gap-4">
                 <button 
@@ -193,12 +240,21 @@ export const TeacherManagement: React.FC = () => {
                   <span className="text-sm font-mono font-bold text-gray-500">{teacher.teacherId}</span>
                 </td>
                 <td className="px-8 py-4 text-right">
-                  <button 
-                    onClick={() => handleDelete(teacher.id, teacher.name)}
-                    className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+                  <div className="flex justify-end gap-2">
+                    <button 
+                      onClick={() => handleExportPdf(teacher)}
+                      title="Generate Information Document"
+                      className="p-2 text-gray-300 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-all"
+                    >
+                      <FileText className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(teacher.id, teacher.name)}
+                      className="p-2 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

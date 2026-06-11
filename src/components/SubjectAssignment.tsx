@@ -11,6 +11,7 @@ import { db } from '../lib/firebase';
 import { Teacher, Subject, Grade, SubjectAssignment } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'react-hot-toast';
+import { trackOperation } from '../lib/metrics';
 
 export const SubjectAssignmentManager: React.FC = () => {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -20,6 +21,13 @@ export const SubjectAssignmentManager: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  
+  // Filter States
+  const [filterGrade, setFilterGrade] = useState('');
+  const [filterSection, setFilterSection] = useState('');
+  const [filterSubject, setFilterSubject] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
   const [formData, setFormData] = useState({
     teacherId: '',
     subjectId: '',
@@ -46,6 +54,28 @@ export const SubjectAssignmentManager: React.FC = () => {
     };
     fetchData();
   }, []);
+
+  const filteredAssignments = assignments.filter(a => {
+    const matchesGrade = !filterGrade || a.gradeName === filterGrade;
+    const matchesSection = !filterSection || a.section === filterSection;
+    const matchesSubject = !filterSubject || a.subjectName === filterSubject;
+    const matchesSearch = !searchTerm || 
+      a.teacherName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      a.subjectName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      a.gradeName.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    return matchesGrade && matchesSection && matchesSubject && matchesSearch;
+  });
+
+  const getUniqueSections = () => {
+    const sections = new Set(grades.map(g => g.section));
+    return Array.from(sections).sort();
+  };
+
+  const getUniqueGradeNames = () => {
+    const names = new Set(grades.map(g => g.name));
+    return Array.from(names).sort();
+  };
 
   const handleEdit = (as: any) => {
     const matchedTeacher = teachers.find(t => 
@@ -92,6 +122,7 @@ export const SubjectAssignmentManager: React.FC = () => {
         passkey: passkey.trim(),
         createdAt: new Date().toISOString()
       });
+      await trackOperation('SUBJECT_ASSIGN', `Assigned ${subject.name} to ${teacher.name}`, { writes: 1 });
       setShowAdd(false);
       setEditingId(null);
       setFormData({ teacherId: '', subjectId: '', gradeId: '', passkey: '' });
@@ -106,6 +137,7 @@ export const SubjectAssignmentManager: React.FC = () => {
     if (window.confirm('Are you absolutely sure you want to remove this teacher assignment?')) {
       try {
         await deleteDoc(doc(db, 'assignments', id));
+        await trackOperation('SUBJECT_ASSIGN', 'Removed Subject Assignment', { deletes: 1, writes: 1 });
         toast.success('Assignment deleted successfully.');
       } catch {
         toast.error('Failed to clear assignment.');
@@ -139,6 +171,44 @@ export const SubjectAssignmentManager: React.FC = () => {
         >
           <Plus className="w-5 h-5" /> New Assignment
         </button>
+      </div>
+
+      {/* Filters Section */}
+      <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
+         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="md:col-span-1">
+               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 px-1">Grade</label>
+               <select 
+                value={filterGrade}
+                onChange={(e) => setFilterGrade(e.target.value)}
+                className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-xl px-4 py-2.5 text-sm font-bold outline-none ring-2 ring-transparent focus:ring-indigo-500/20"
+               >
+                  <option value="">All Grades</option>
+                  {getUniqueGradeNames().map(n => <option key={n} value={n}>{n}</option>)}
+               </select>
+            </div>
+            <div className="md:col-span-1">
+               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 px-1">Section</label>
+               <select 
+                value={filterSection}
+                onChange={(e) => setFilterSection(e.target.value)}
+                className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-xl px-4 py-2.5 text-sm font-bold outline-none ring-2 ring-transparent focus:ring-indigo-500/20"
+               >
+                  <option value="">All Sections</option>
+                  {getUniqueSections().map(s => <option key={s} value={s}>{s}</option>)}
+               </select>
+            </div>
+            <div className="md:col-span-2">
+               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 px-1">Search Table</label>
+               <input 
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search teacher, subject or grade..."
+                className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-xl px-4 py-2.5 text-sm font-bold outline-none ring-2 ring-transparent focus:ring-indigo-500/20"
+               />
+            </div>
+         </div>
       </div>
 
       <AnimatePresence>
@@ -268,7 +338,7 @@ export const SubjectAssignmentManager: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-gray-800/50">
-            {assignments.map((as) => (
+            {filteredAssignments.map((as) => (
               <tr key={as.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-850/20 transition-colors group">
                 <td className="px-8 py-4.5">
                   <div className="flex items-center gap-3">

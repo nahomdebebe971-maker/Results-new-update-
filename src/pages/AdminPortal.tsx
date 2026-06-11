@@ -4,7 +4,7 @@ import {
   Settings, PieChart, Upload, Plus, Trash2, 
   Search, FileDown, Edit3, CheckCircle, XCircle,
   Award, TrendingUp, BarChart3, Layout, Menu, X,
-  Database
+  Database, Wand2
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { SchoolConfig } from '../types';
@@ -18,17 +18,34 @@ import { RosterGenerator } from '../components/RosterGenerator';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { SubjectAssignmentManager } from '../components/SubjectAssignment';
 import { DatabaseStatus } from '../components/DatabaseStatus';
+import { DataGenerator } from '../components/DataGenerator';
 
 import { DecisionDashboard } from '../components/DecisionDashboard';
 
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { getUnreadCount } from '../lib/notificationService';
+import { NotificationPanel } from '../components/NotificationPanel';
+import { AnimatePresence } from 'motion/react';
+import { Bell } from 'lucide-react';
 
 export const AdminPortal: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { config, updateConfig } = useSchoolConfig();
   const [counts, setCounts] = useState({ students: 0, teachers: 0, grades: 0, subjects: 0 });
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const handleOpenNotifs = () => setShowNotifications(true);
+    window.addEventListener('open-notifications', handleOpenNotifs);
+    const unsub = getUnreadCount(setUnreadCount);
+    return () => {
+      window.removeEventListener('open-notifications', handleOpenNotifs);
+      unsub();
+    };
+  }, []);
 
   useEffect(() => {
     const unsubS = onSnapshot(collection(db, 'students'), (snap) => setCounts(prev => ({ ...prev, students: snap.size })));
@@ -54,6 +71,7 @@ export const AdminPortal: React.FC = () => {
     { id: 'analytics', label: 'Analytics', icon: Award },
     { id: 'db-status', label: 'DB Health', icon: Database },
     { id: 'reports', label: 'Exports', icon: FileDown },
+    { id: 'tools', label: 'Data Genie', icon: Wand2 },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -104,21 +122,60 @@ export const AdminPortal: React.FC = () => {
           </button>
         </div>
 
-        <nav className="flex-grow px-4 pb-4 space-y-1 overflow-y-auto">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => handleTabChange(tab.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
-                activeTab === tab.id 
-                  ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-100/30 dark:border-indigo-900/40' 
-                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-900 dark:hover:text-white border border-transparent'
-              }`}
-            >
-              <tab.icon className={`w-4 h-4 transition-colors ${activeTab === tab.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'}`} />
-              {tab.label}
-            </button>
-          ))}
+        <nav className="flex-grow px-4 pb-4 space-y-8 overflow-y-auto">
+          <div className="space-y-1">
+            <p className="px-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Core Management</p>
+            {tabs.filter(t => ['dashboard', 'teachers', 'students', 'grades', 'subjects', 'assignments'].includes(t.id)).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                  activeTab === tab.id 
+                    ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-100/30 dark:border-indigo-900/40' 
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-900 dark:hover:text-white border border-transparent'
+                }`}
+              >
+                <tab.icon className={`w-4 h-4 transition-colors ${activeTab === tab.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'}`} />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-1">
+            <p className="px-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Academic Intelligence</p>
+            {tabs.filter(t => ['analytics', 'reports', 'insights'].includes(t.id)).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                  activeTab === tab.id 
+                    ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-100/30 dark:border-indigo-900/40' 
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-900 dark:hover:text-white border border-transparent'
+                }`}
+              >
+                <tab.icon className={`w-4 h-4 transition-colors ${activeTab === tab.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'}`} />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-1">
+            <p className="px-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">System Tools</p>
+            {tabs.filter(t => ['db-status', 'tools', 'settings'].includes(t.id)).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                  activeTab === tab.id 
+                    ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-100/30 dark:border-indigo-900/40' 
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-850 hover:text-gray-900 dark:hover:text-white border border-transparent'
+                }`}
+              >
+                <tab.icon className={`w-4 h-4 transition-colors ${activeTab === tab.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'}`} />
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </nav>
         
         <div className="p-4 border-t border-gray-100 dark:border-gray-800 mt-auto">
@@ -133,7 +190,21 @@ export const AdminPortal: React.FC = () => {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-grow overflow-y-auto bg-gray-50/50 dark:bg-gray-950/30 p-4 sm:p-6 lg:p-8 transition-colors">
+      <main className="flex-grow overflow-y-auto bg-gray-50/50 dark:bg-gray-950/30 p-4 sm:p-6 lg:p-8 transition-colors relative">
+        <div className="absolute top-6 right-8 hidden lg:flex items-center gap-4 z-20">
+           <button 
+            onClick={() => setShowNotifications(true)}
+            className="p-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl shadow-sm hover:shadow-md transition-all relative group"
+           >
+              <Bell className="w-5 h-5 text-gray-500 group-hover:text-indigo-600" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white dark:border-gray-900 animate-bounce">
+                  {unreadCount}
+                </span>
+              )}
+           </button>
+        </div>
+
         <div className="max-w-6xl mx-auto w-full">
           {activeTab === 'dashboard' && (
             <AdminDashboard 
@@ -150,10 +221,17 @@ export const AdminPortal: React.FC = () => {
           {activeTab === 'reports' && <RosterGenerator config={config} />}
           {activeTab === 'analytics' && <AnalyticsDashboard config={config} />}
           {activeTab === 'db-status' && <DatabaseStatus />}
+          {activeTab === 'tools' && <DataGenerator />}
           {activeTab === 'insights' && <DecisionDashboard config={config} />}
           {activeTab === 'settings' && <SchoolSettingsWrapper />}
         </div>
       </main>
+      
+      <AnimatePresence>
+        {showNotifications && (
+          <NotificationPanel onClose={() => setShowNotifications(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db, loginWithEmail } from '../lib/firebase';
-import { UserRole } from '../types';
+import { UserRole, Teacher } from '../types';
 import { logAction } from '../lib/auditService';
 
 interface AuthContextType {
@@ -11,6 +11,9 @@ interface AuthContextType {
   loading: boolean;
   teacherId?: string;
   teacherName?: string;
+  assignedSubjects?: string[];
+  assignedClasses?: string[];
+  homeroomTeacherFor?: { grade: string; section: string };
   loginTeacher: (name: string, id: string) => Promise<void>;
   loginAdmin: (email: string, pass: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -33,6 +36,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [teacherId, setTeacherId] = useState<string>();
   const [teacherName, setTeacherName] = useState<string>();
+  const [assignedSubjects, setAssignedSubjects] = useState<string[]>([]);
+  const [assignedClasses, setAssignedClasses] = useState<string[]>([]);
+  const [homeroomTeacherFor, setHomeroomTeacherFor] = useState<{ grade: string; section: string }>();
 
   const checkUserRole = async (uid: string, email: string | null) => {
     // 1. Check if Admin
@@ -48,14 +54,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // 2. Check if Teacher (ID is uid)
+    // 2. Check if Teacher (ID is uid or matched by email)
+    // First try by UID (for real auth accounts)
     const teacherDoc = await getDoc(doc(db, 'teachers', uid));
     if (teacherDoc.exists()) {
       const data = teacherDoc.data();
       setRole('TEACHER');
       setTeacherId(data.teacherId);
       setTeacherName(data.name);
+      setAssignedSubjects(data.assignedSubjects || []);
+      setAssignedClasses(data.assignedClasses || []);
+      setHomeroomTeacherFor(data.homeroomTeacherFor);
       return;
+    }
+    
+    // Then try by email if provided
+    if (email) {
+      const teacherIdFromEmail = email.split('@')[0].toUpperCase();
+      const q = query(collection(db, 'teachers'), where('teacherId', '==', teacherIdFromEmail));
+      const tSnap = await getDocs(q);
+      if (!tSnap.empty) {
+        const data = tSnap.docs[0].data();
+        setRole('TEACHER');
+        setTeacherId(data.teacherId);
+        setTeacherName(data.name);
+        setAssignedSubjects(data.assignedSubjects || []);
+        setAssignedClasses(data.assignedClasses || []);
+        setHomeroomTeacherFor(data.homeroomTeacherFor);
+        return;
+      }
     }
     
     setRole(null);
@@ -72,25 +99,72 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const loginTeacher = async (id: string, pass: string) => {
+  const loginTeacher = async (id: string, name: string) => {
     try {
-      // Map teacherId to an internal email convention or look up if teacherId was provided as email
-      const email = id.includes('@') ? id : `${id.toLowerCase()}@school.internal`;
-      const credential = await loginWithEmail(email, pass);
-      await checkUserRole(credential.user.uid, credential.user.email);
-      await logAction(credential.user.uid, credential.user.email || '', 'LOGIN', `Teacher ${id} logged into portal`);
+      // 1. Check if Teacher exists in Firestore directly (Virtual Login)
+      const cleanId = id.trim().toUpperCase();
+      const cleanName = name.trim().toLowerCase();
+      
+      const q = query(collection(db, 'teachers'), where('teacherId', '==', cleanId));
+      const tSnap = await getDocs(q);
+      
+      if (tSnap.empty) {
+         throw new Error('Invalid Teacher ID');
+      }
+
+      const teacherDoc = tSnap.docs[0];
+      const teacherData = teacherDoc.data();
+      
+      // 2. Validate Name (Case-insensitive)
+      if (teacherData.name.trim().toLowerCase() !== cleanName) {
+         throw new Error('Teacher Name Does Not Match');
+      }
+
+      // 3. Set Virtual Session
+      const virtualUser = {
+        uid: teacherDoc.id,
+        email: `${cleanId.toLowerCase()}@school.internal`,
+        displayName: teacherData.name
+      } as any;
+
+      setUser(virtualUser);
+      setRole('TEACHER');
+      setTeacherId(teacherData.teacherId);
+      setTeacherName(teacherData.name);
+      setAssignedSubjects(teacherData.assignedSubjects || []);
+      setAssignedClasses(teacherData.assignedClasses || []);
+      setHomeroomTeacherFor(teacherData.homeroomTeacherFor);
+
+      // Persist in localStorage to survive refresh
+      localStorage.setItem('school_staff_session', JSON.stringify({
+        role: 'TEACHER',
+        teacherId: teacherData.teacherId,
+        teacherName: teacherData.name,
+        assignedSubjects: teacherData.assignedSubjects || [],
+        assignedClasses: teacherData.assignedClasses || [],
+        homeroomTeacherFor: teacherData.homeroomTeacherFor || null,
+        uid: teacherDoc.id,
+        email: virtualUser.email,
+        expires: Date.now() + 60 * 60 * 1000 // 60 min expiry
+      }));
+
+      await logAction(teacherDoc.id, virtualUser.email, 'LOGIN', `Teacher ${cleanId} (${teacherData.name}) logged into portal`);
     } catch (err: any) {
       console.error("Teacher login error:", err);
-      throw new Error('Teacher authentication failed. Please verify your ID and password.');
+      throw new Error(err.message || 'Teacher authentication failed. Please check your credentials.');
     }
   };
 
   const [lastActivity, setLastActivity] = useState(Date.now());
 
   const performLogout = async () => {
-    await signOut(auth);
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.warn("Firebase signout failed (might be virtual session):", err);
+    }
     localStorage.removeItem('school_staff_session');
-    sessionStorage.clear(); // Clear all cached result data
+    sessionStorage.clear();
     setRole(null);
     setTeacherId(undefined);
     setTeacherName(undefined);
@@ -126,6 +200,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await checkUserRole(fbUser.uid, fbUser.email);
         setLoading(false);
       } else {
+        // Check for virtual session in localStorage
+        const stored = localStorage.getItem('school_staff_session');
+        if (stored) {
+          try {
+            const data = JSON.parse(stored);
+            if (data.expires > Date.now()) {
+              setUser({ uid: data.uid, email: data.email, displayName: data.teacherName } as any);
+              setRole(data.role);
+              setTeacherId(data.teacherId);
+              setTeacherName(data.teacherName);
+              setAssignedSubjects(data.assignedSubjects || []);
+              setAssignedClasses(data.assignedClasses || []);
+              setHomeroomTeacherFor(data.homeroomTeacherFor);
+              setLoading(false);
+              return;
+            } else {
+              localStorage.removeItem('school_staff_session');
+            }
+          } catch (e) {
+            console.error("Session restore error:", e);
+            localStorage.removeItem('school_staff_session');
+          }
+        }
+        
         setUser(null);
         setRole(null);
         setLoading(false);
@@ -136,7 +234,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, role, loading, teacherId, teacherName, loginTeacher, loginAdmin, logout: performLogout }}>
+    <AuthContext.Provider value={{ 
+      user, role, loading, teacherId, teacherName, 
+      assignedSubjects, assignedClasses, homeroomTeacherFor,
+      loginTeacher, loginAdmin, logout: performLogout 
+    }}>
       {children}
     </AuthContext.Provider>
   );

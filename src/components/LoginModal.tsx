@@ -23,14 +23,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
 
   // Teacher state
   const [teacherId, setTeacherId] = useState('');
-  const [teacherPass, setTeacherPass] = useState('');
+  const [fullName, setFullName] = useState('');
 
   const handleTeacherLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      await loginTeacher(teacherId, teacherPass);
+      await loginTeacher(teacherId, fullName);
       onClose();
     } catch (err: any) {
       console.error('Teacher Auth Error:', err);
@@ -165,26 +165,26 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                           value={teacherId}
                           onChange={e => setTeacherId(e.target.value)}
                           className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition-all shadow-inner"
-                          placeholder="T-001"
+                          placeholder="T1001"
                         />
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Internal Password</label>
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Teacher Full Name</label>
                       <div className="relative">
-                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                         <input 
-                          type="password"
+                          type="text"
                           required
-                          value={teacherPass}
-                          onChange={e => setTeacherPass(e.target.value)}
+                          value={fullName}
+                          onChange={e => setFullName(e.target.value)}
                           className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition-all shadow-inner"
-                          placeholder="••••••••"
+                          placeholder="e.g. Abebe Kebede"
                         />
                       </div>
                     </div>
                     <p className="text-[10px] text-gray-400 text-center uppercase font-bold tracking-tighter">
-                      Teachers use their registered school credentials.
+                      Login using your Teacher ID and registered Full Name.
                     </p>
                   </>
                 )}

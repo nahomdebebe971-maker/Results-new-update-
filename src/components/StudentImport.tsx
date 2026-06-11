@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { trackOperation } from '../lib/metrics';
 import { Student, Grade } from '../types';
 import { read, utils } from 'xlsx';
 import { toast } from 'react-hot-toast';
@@ -395,6 +396,7 @@ export const StudentImport: React.FC<StudentImportProps> = ({ isOpen, onClose, g
         });
 
         await batch.commit();
+        await trackOperation('BULK_IMPORT', `Imported ${chunk.length} students to ${selectedGrade}`, { writes: chunk.length });
         setProgress(Math.round(((i + chunk.length) / validRows.length) * 100));
       }
 

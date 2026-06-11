@@ -1,10 +1,21 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { 
+  initializeFirestore, 
+  doc, 
+  getDocFromServer, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+
+// Initialize Firestore with persistent cache for better resilience
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+}, (firebaseConfig as any).firestoreDatabaseId);
+
 export const auth = getAuth(app);
 
 export const loginWithEmail = (email: string, pass: string) => 
@@ -17,11 +28,14 @@ export const logout = () => signOut(auth);
 
 async function testConnection() {
   try {
-    // Attempting to read a dummy doc to verify connection
-    await getDocFromServer(doc(db, 'config', 'health'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
+    // Attempting to read a dummy doc from server to verify live backend connection
+    await getDocFromServer(doc(db, '_system_', 'health_probe'));
+  } catch (error: any) {
+    // If it's a connection error, we log it and operate in offline/cached mode
+    if (error?.code === 'unavailable') {
+      console.warn("Firestore backend currently unreachable. Operating in Offline Persistence mode.");
+    } else {
+      console.error("Firestore initialization probe failed:", error?.message || error);
     }
   }
 }

@@ -225,27 +225,53 @@ export const SchoolSettings: React.FC = () => {
     }
   };
 
+  const [resetConfirmText, setResetConfirmText] = useState('');
+
   const handleDeleteAllData = async () => {
+    if (resetConfirmText !== 'RESET SCHOOL SYSTEM') {
+      toast.error('Verification text does not match.');
+      return;
+    }
     setIsResetting(true);
     try {
-      const collections = ['students', 'teachers', 'grades', 'subjects', 'marks', 'assignments'];
-      const batch = writeBatch(db);
+      const collections = [
+        'students', 
+        'teachers', 
+        'grades', 
+        'subjects', 
+        'marks', 
+        'assignments', 
+        'publishedResults', 
+        'verificationCache', 
+        'analyticsCache',
+        'schoolAnalytics'
+      ];
       let totalDeleted = 0;
 
       for (const colName of collections) {
         const snap = await getDocs(collection(db, colName));
-        snap.forEach((document) => {
+        let batch = writeBatch(db);
+        let count = 0;
+        
+        for (const document of snap.docs) {
           batch.delete(doc(db, colName, document.id));
+          count++;
           totalDeleted++;
-        });
+          
+          if (count >= 450) {
+            await batch.commit();
+            batch = writeBatch(db);
+            count = 0;
+          }
+        }
+
+        if (count > 0) {
+          await batch.commit();
+        }
       }
 
-      // Reset published grades in config
-      await updateConfig({ publishedGrades: [] });
-
-      if (totalDeleted > 0) {
-        await batch.commit();
-      }
+       // Reset published grades in config
+       await updateConfig({ publishedGrades: [] });
       
       if (user) {
         await logAction(
@@ -479,20 +505,32 @@ export const SchoolSettings: React.FC = () => {
                   Reset All Data
                 </button>
               ) : (
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => setShowConfirmReset(false)}
-                    className="px-4 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all text-xs"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleDeleteAllData}
-                    disabled={isResetting}
-                    className="px-6 py-3 bg-red-600 text-white rounded-xl font-black hover:bg-red-700 transition-all shadow-lg shadow-red-200 text-xs uppercase tracking-widest flex items-center gap-2"
-                  >
-                    {isResetting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Wipeout'}
-                  </button>
+                <div className="flex flex-col gap-4 w-full md:w-auto">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">Type "RESET SCHOOL SYSTEM" to confirm</p>
+                    <input 
+                      type="text"
+                      placeholder="RESET SCHOOL SYSTEM"
+                      value={resetConfirmText}
+                      onChange={e => setResetConfirmText(e.target.value)}
+                      className="w-full p-3 bg-red-50 border border-red-100 rounded-xl text-xs font-black text-red-900 placeholder:text-red-200 outline-none focus:ring-2 focus:ring-red-600 uppercase transition-all"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 justify-end">
+                    <button 
+                      onClick={() => { setShowConfirmReset(false); setResetConfirmText(''); }}
+                      className="px-4 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all text-xs"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={handleDeleteAllData}
+                      disabled={isResetting || resetConfirmText !== 'RESET SCHOOL SYSTEM'}
+                      className="px-6 py-3 bg-red-600 disabled:bg-gray-200 text-white rounded-xl font-black hover:bg-red-700 transition-all shadow-lg shadow-red-200 text-xs uppercase tracking-widest flex items-center gap-2"
+                    >
+                      {isResetting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Wipeout'}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

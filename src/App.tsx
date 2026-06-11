@@ -117,12 +117,18 @@ const AppContent: React.FC = () => {
   );
 };
 
+import { ProgressProvider } from './context/ProgressContext';
+import { GlobalProgressModal } from './components/GlobalProgressModal';
+
 export default function App() {
   return (
-    <NavigationProvider>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </NavigationProvider>
+    <ProgressProvider>
+      <NavigationProvider>
+        <AuthProvider>
+          <AppContent />
+          <GlobalProgressModal />
+        </AuthProvider>
+      </NavigationProvider>
+    </ProgressProvider>
   );
 }

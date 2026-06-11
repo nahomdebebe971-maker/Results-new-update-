@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
-import { LogOut, Sun, Moon, Menu, X, Info, ShieldCheck, Home, BookOpen, User, BookCheck, Terminal, Award } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  LogOut, Sun, Moon, Menu, X, Info, ShieldCheck, 
+  Home, BookOpen, User, BookCheck, Terminal, Award, Bell 
+} from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { useTheme } from '../hooks/useTheme';
 import { useNavigation } from '../context/NavigationContext';
 import { LoginModal } from './LoginModal';
+import { getUnreadCount } from '../lib/notificationService';
 
 export const Navbar: React.FC = () => {
   const { user, role, logout } = useAuth();
@@ -13,6 +17,12 @@ export const Navbar: React.FC = () => {
   const { navigateTo } = useNavigation();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const unsub = getUnreadCount(setUnreadCount);
+    return () => unsub();
+  }, []);
 
   const handleMobileNav = (target: 'portal' | 'verify' | 'documentation' | 'developer' | 'teacher_login' | 'admin_login') => {
     setIsMobileMenuOpen(false);
@@ -94,6 +104,21 @@ export const Navbar: React.FC = () => {
             </button>
 
             {/* Theme Toggle Button */}
+            {(user || role) && (
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('open-notifications'))}
+                className="p-2.5 bg-gray-50 dark:bg-gray-800 rounded-xl relative hover:bg-gray-100 dark:hover:bg-gray-700 transition-all group"
+                title="System Notifications"
+              >
+                <Bell className="w-5 h-5 text-gray-500 group-hover:text-indigo-600" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white dark:border-gray-950 animate-bounce">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             <button
               onClick={toggleTheme}
               className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl transition-all cursor-pointer"
@@ -136,6 +161,23 @@ export const Navbar: React.FC = () => {
 
           {/* Mobile Right Rail (Theme Toggle + Hamburger) */}
           <div className="flex md:hidden items-center gap-3">
+            {/* Notification Bell Mobile */}
+            {(user || role) && (
+              <button
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('open-notifications'));
+                }}
+                className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl transition-all relative"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-black flex items-center justify-center rounded-full border-2 border-white dark:border-gray-900">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* Theme Toggle Button */}
             <button
               onClick={toggleTheme}
