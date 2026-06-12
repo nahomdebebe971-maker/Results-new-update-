@@ -120,5 +120,26 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if isSignedIn(); // Allow authenticated users to log actions
     }
+
+    // 11. System Tracking (Metrics, Operations, Reports)
+    match /system_metrics/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    match /system_operations/{opId} {
+      allow read: if isAdmin();
+      allow write: if true; // Operations can be logged by system
+    }
+
+    match /system_reports/{reportId} {
+      allow read: if isAdmin();
+      allow write: if true;
+    }
+
+    match /system_notifications/{notifId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

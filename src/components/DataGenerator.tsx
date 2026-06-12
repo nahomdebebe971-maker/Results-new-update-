@@ -6,9 +6,9 @@ import {
   UserRound, BookOpen, Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, writeBatch, doc, getDoc, getDocs, query, where, deleteDoc, addDoc, orderBy, limit } from 'firebase/firestore';
+import { collection, writeBatch, doc, getDoc, getDocs, query, where, deleteDoc, addDoc, orderBy, limit, getDocFromServer, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { logGenerationReport, trackMetrics, SystemMetrics } from '../lib/metrics';
+import { logGenerationReport, trackMetrics, trackOperation, getDailyDocId, SystemMetrics } from '../lib/metrics';
 import { checkFirebaseHealth } from '../lib/firebaseHealth';
 import { toast } from 'react-hot-toast';
 import { Grade, Subject, Student, Teacher, SubjectAssignment } from '../types';
@@ -88,9 +88,6 @@ export const DataGenerator: React.FC = () => {
       const tSnap = await getDocs(collection(db, 'teachers'));
       const sSnap = await getDocs(collection(db, 'students'));
       
-      const todayId = new Date().toISOString().split('T')[0];
-      const mSnap = await getDoc(doc(db, 'system_metrics', todayId));
-      
       const g9 = gSnap.docs.filter(d => d.data().name === '9').map(d => d.data().section).sort();
       const g10 = gSnap.docs.filter(d => d.data().name === '10').map(d => d.data().section).sort();
       const g11 = gSnap.docs.filter(d => d.data().name === '11').map(d => d.data().section).sort();
@@ -104,11 +101,16 @@ export const DataGenerator: React.FC = () => {
         teachers: tSnap.size,
         students: sSnap.size
       });
+    };
+    fetchExisting();
 
-      if (mSnap.exists()) {
-        const data = mSnap.data();
-        // Rename for compatibility if needed, but here we just need totalWrites
-        setGlobalMetrics({
+    const todayId = getDailyDocId();
+    // Real-time metrics sync
+    const unsubMetrics = onSnapshot(doc(db, 'system_metrics', todayId), (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        setGlobalMetrics(prev => ({
+          ...prev,
           totalWrites: data.totalWrites || 0,
           totalReads: data.totalReads || 0,
           totalDeletes: data.totalDeletes || 0,
@@ -118,22 +120,43 @@ export const DataGenerator: React.FC = () => {
           sectionsCount: data.sectionsCount || 0,
           lastUpdated: data.lastUpdated || '',
           quotaExhausted: data.quotaExhausted || false
-        });
+        } as SystemMetrics));
+      } else {
+        setGlobalMetrics(null);
       }
-    };
-    fetchExisting();
+    });
+
+    const unsubGlobal = onSnapshot(doc(db, 'system_metrics', 'global_status'), (doc) => {
+       if (doc.exists()) {
+          const data = doc.data();
+          setGlobalMetrics(prev => ({
+            ...prev,
+            totalWrites: data.totalWrites || 0,
+            totalReads: data.totalReads || 0,
+            totalDeletes: data.totalDeletes || 0,
+            lastUpdated: data.lastUpdated || '',
+            quotaExhausted: data.quotaExhausted || false
+          } as SystemMetrics));
+       }
+    });
 
     const timer = setInterval(() => {
       const now = new Date();
       const reset = new Date();
-      reset.setUTCHours(7, 0, 0, 0);
-      if (now.getUTCHours() >= 7) reset.setUTCDate(reset.getUTCDate() + 1);
+      
+      // Target 10:00 AM UTC
+      reset.setUTCHours(10, 0, 0, 0);
+      if (now.getUTCHours() >= 10) {
+        reset.setUTCDate(reset.getUTCDate() + 1);
+      }
+      
       const diff = reset.getTime() - now.getTime();
       const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff / 60000) % 60);
-      const s = Math.floor((diff / 1000) % 60);
-      setCountdown(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
-      setResetTime(reset.toLocaleTimeString());
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      
+      setCountdown(`${h}h ${m}m ${s}s`);
+      setResetTime(reset.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
     }, 1000);
 
     const checkHealth = async () => {
@@ -144,7 +167,11 @@ export const DataGenerator: React.FC = () => {
     };
     checkHealth();
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      unsubMetrics();
+      unsubGlobal();
+    };
   }, []);
 
   const [impact, setImpact] = useState({
@@ -216,8 +243,8 @@ export const DataGenerator: React.FC = () => {
       return;
     }
 
-    const todayId = new Date().toISOString().split('T')[0];
-    const latestMetricsSnap = await getDoc(doc(db, 'system_metrics', todayId));
+    const todayId = getDailyDocId();
+    const latestMetricsSnap = await getDocFromServer(doc(db, 'system_metrics', todayId));
     const todayWrites = latestMetricsSnap.exists() ? (latestMetricsSnap.data().totalWrites || 0) : 0;
 
     if (todayWrites + impact.writes > 20000) {
@@ -251,12 +278,14 @@ export const DataGenerator: React.FC = () => {
             actualWrites++;
             if (count >= 450) {
               await batch.commit();
+              await trackOperation('SYSTEM', `Purged ${count} records from ${col}`, { writes: count });
               batch = writeBatch(db);
               count = 0;
             }
           }
           if (count > 0) {
             await batch.commit();
+            await trackOperation('SYSTEM', `Purged ${count} records from ${col}`, { writes: count });
           }
         }
       }
@@ -284,6 +313,7 @@ export const DataGenerator: React.FC = () => {
           const gId = `${gc.name}${section}`;
           const gRef = doc(db, 'grades', gId);
           
+          let subWrites = 0;
           const subIds: string[] = [];
           for (const sName of currentSubs) {
             let sId = globalSubjects.get(sName);
@@ -293,6 +323,7 @@ export const DataGenerator: React.FC = () => {
               batch.set(sRef, { id: sId, name: sName, createdAt: new Date().toISOString() });
               globalSubjects.set(sName, sId);
               actualWrites++;
+              subWrites++;
             }
             subIds.push(sId);
           }
@@ -308,7 +339,8 @@ export const DataGenerator: React.FC = () => {
           gradeDocs.push(gradeData);
           actualWrites++;
           await batch.commit();
-          await trackMetrics({ totalWrites: 1, sectionsCount: 1 });
+          await trackOperation('GRADE_MGT', `Created Grade ${gc.name} Section ${section}`, { writes: 1 + subWrites });
+          await trackMetrics({ sectionsCount: 1, genRecords: 1 });
           setProgress(p => ({ ...p, current: p.current + 1 }));
         }
       }
@@ -333,7 +365,8 @@ export const DataGenerator: React.FC = () => {
         teacherDocs.push(teacher);
         actualWrites++;
         await tBatch.commit();
-        await trackMetrics({ totalWrites: 1, teachersCount: 1 });
+        await trackOperation('TEACHER_MGT', `Registered Teacher ${teacher.name}`, { writes: 1 });
+        await trackMetrics({ teachersCount: 1, genTeachers: 1 });
         setProgress(p => ({ ...p, current: i + 1 }));
       }
 
@@ -347,6 +380,7 @@ export const DataGenerator: React.FC = () => {
         batch.update(gRef, { homeroomTeacher: homeroomTeacher.name });
         actualWrites++;
 
+        let assignWrites = 0;
         for (const sId of (grade.subjectIds || [])) {
           const subTeacher = teacherDocs[teacherIndexRef.val % teacherDocs.length];
           teacherIndexRef.val++;
@@ -367,10 +401,10 @@ export const DataGenerator: React.FC = () => {
             createdAt: new Date().toISOString()
           });
           actualWrites++;
+          assignWrites++;
         }
         await batch.commit();
-        await trackMetrics({ totalWrites: actualWrites - localWrites });
-        localWrites = actualWrites;
+        await trackOperation('SUBJECT_ASSIGN', `Assigned subjects for Grade ${grade.name}${grade.section}`, { writes: 1 + assignWrites });
         setProgress(p => ({ ...p, current: progress.current + 1 }));
       }
 
@@ -399,6 +433,7 @@ export const DataGenerator: React.FC = () => {
           sBatch.set(sRef, student);
           actualWrites++;
 
+          let markWrites = 0;
           if (genConfig.generateResults) {
             for (const sId of (grade.subjectIds || [])) {
               const mId = `${studentId}_${sId}`;
@@ -414,9 +449,11 @@ export const DataGenerator: React.FC = () => {
                 updatedAt: new Date().toISOString()
               });
               actualWrites++;
+              markWrites++;
             }
           }
 
+          let qWrites = 0;
           if (genConfig.generateQR && student.verificationId) {
             const vRef = doc(db, 'verificationCache', student.verificationId);
             sBatch.set(vRef, {
@@ -428,11 +465,17 @@ export const DataGenerator: React.FC = () => {
               isTest: true
             });
             actualWrites++;
+            qWrites++;
           }
 
           await sBatch.commit();
-          await trackMetrics({ totalWrites: actualWrites - localWrites, studentsCount: 1 });
-          localWrites = actualWrites;
+          await trackMetrics({ 
+            studentsCount: 1, 
+            genStudents: 1, 
+            genMarks: markWrites,
+            genRecords: qWrites,
+            totalWrites: 1 + markWrites + qWrites 
+          });
           setProgress(p => ({ ...p, current: p.current + 1 }));
         }
       }

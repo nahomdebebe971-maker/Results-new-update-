@@ -11,9 +11,11 @@ import { db } from '../lib/firebase';
 import { Teacher, Subject, Grade, SubjectAssignment } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'react-hot-toast';
+import { useModal } from '../context/ModalContext';
 import { trackOperation } from '../lib/metrics';
 
 export const SubjectAssignmentManager: React.FC = () => {
+  const { showModal } = useModal();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -134,15 +136,21 @@ export const SubjectAssignmentManager: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you absolutely sure you want to remove this teacher assignment?')) {
-      try {
-        await deleteDoc(doc(db, 'assignments', id));
-        await trackOperation('SUBJECT_ASSIGN', 'Removed Subject Assignment', { deletes: 1, writes: 1 });
-        toast.success('Assignment deleted successfully.');
-      } catch {
-        toast.error('Failed to clear assignment.');
+    showModal({
+      title: 'Remove Assignment',
+      message: 'Are you absolutely sure you want to remove this teacher assignment? The instructor will lose access to input marks for this specific grade and subject.',
+      type: 'warning',
+      confirmText: 'Remove Alignment',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'assignments', id));
+          await trackOperation('SUBJECT_ASSIGN', 'Removed Subject Assignment', { deletes: 1, writes: 1 });
+          toast.success('Assignment deleted successfully.');
+        } catch {
+          toast.error('Failed to clear assignment.');
+        }
       }
-    }
+    });
   };
 
   if (loading) {

@@ -25,6 +25,7 @@ import { Grade, Student, Subject, Teacher } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSchoolConfig } from '../hooks/useSchoolConfig';
 import { toast } from 'react-hot-toast';
+import { useModal } from '../context/ModalContext';
 import { trackOperation } from '../lib/metrics';
 import { GradeResultsTable } from './GradeResultsTable';
 import { publishGradeResults, ProgressData } from '../lib/resultService';
@@ -35,6 +36,7 @@ import { generateAllStudentTranscriptsForGrade } from '../lib/pdfGenerator';
 import { useProgress } from '../context/ProgressContext';
 
 export const GradeManagement: React.FC = () => {
+  const { showModal } = useModal();
   const [grades, setGrades] = useState<Grade[]>([]);
   const { config, updateConfig } = useSchoolConfig();
   const [loading, setLoading] = useState(true);
@@ -135,73 +137,79 @@ export const GradeManagement: React.FC = () => {
                 `Are you sure you want to FORCE DELETE this grade and ALL associated records? This will purge teacher assignments, progress reports, and notifications.`;
     }
 
-    if (!window.confirm(message)) return;
+    showModal({
+      title: 'Force Delete Grade Ecosystem',
+      message: message,
+      type: 'warning',
+      confirmText: 'Execute Force Delete',
+      onConfirm: async () => {
+        try {
+          startOperation(`Deleting Grade ${grade.name}${grade.section}`, 100);
+          
+          // Step 1: Remove Assignments
+          updateProgress(10, 'Clearing Subject & Teacher Assignments...', 0);
+          const aQuery = query(collection(db, 'assignments'), where('gradeId', '==', grade.id));
+          const aSnap = await getDocs(aQuery);
+          for (const d of aSnap.docs) {
+              await deleteDoc(d.ref);
+          }
+          updateProgress(30, 'Assignments purged successfully.', aSnap.size);
 
-    try {
-      startOperation(`Deleting Grade ${grade.name}${grade.section}`, 100);
-      
-      // Step 1: Remove Assignments
-      updateProgress(10, 'Clearing Subject & Teacher Assignments...', 0);
-      const aQuery = query(collection(db, 'assignments'), where('gradeId', '==', grade.id));
-      const aSnap = await getDocs(aQuery);
-      for (const d of aSnap.docs) {
-          await deleteDoc(d.ref);
+          // Step 2: Remove Notifications
+          updateProgress(35, 'Cleaning System Notifications...', aSnap.size);
+          const nQuery = query(collection(db, 'system_notifications'), where('moduleId', '==', `${grade.name}${grade.section}`));
+          const nSnap = await getDocs(nQuery);
+          for (const d of nSnap.docs) {
+              await deleteDoc(d.ref);
+          }
+          updateProgress(50, 'Notification logs cleared.', aSnap.size + nSnap.size);
+
+          // Step 3: Clear Results Data (Marks & Published)
+          updateProgress(55, 'Purging results and cache...', aSnap.size + nSnap.size);
+          
+          // Marks Deletion
+          for (const d of mSnap.docs) {
+            await deleteDoc(d.ref);
+          }
+
+          // Published Results & Verification Cache
+          const pQuery = query(collection(db, 'publishedResults'), where('grade', '==', grade.name), where('section', '==', grade.section));
+          const pSnap = await getDocs(pQuery);
+          for (const d of pSnap.docs) {
+            await deleteDoc(d.ref);
+          }
+
+          const vQuery = query(collection(db, 'verificationCache'), where('grade', '==', grade.name), where('section', '==', grade.section));
+          const vSnap = await getDocs(vQuery);
+          for (const d of vSnap.docs) {
+            await deleteDoc(d.ref);
+          }
+          
+          updateProgress(80, 'Results metadata purged.', aSnap.size + nSnap.size + mSnap.size + pSnap.size + vSnap.size);
+
+          // Step 4: Delete Primary Record
+          updateProgress(85, 'Deleting Primary Grade Record...', aSnap.size + nSnap.size + mSnap.size + pSnap.size + vSnap.size);
+          await deleteDoc(doc(db, 'grades', grade.id));
+
+          // Step 5: Update Configuration
+          if (isPublished) {
+              updateProgress(90, 'Updating System Configuration...', aSnap.size + nSnap.size + mSnap.size + pSnap.size + vSnap.size);
+              const newPublished = (config?.publishedGrades || []).filter(id => id !== grade.id);
+              await updateConfig({ publishedGrades: newPublished });
+          }
+
+          await trackOperation('GRADE_MGT', `Fully Purged Grade ${grade.name}${grade.section}`, { 
+            deletes: 1 + aSnap.size + nSnap.size + mSnap.size + pSnap.size + vSnap.size 
+          });
+          
+          completeOperation();
+          toast.success(`Grade ${grade.name}${grade.section} and its ecosystem deleted.`);
+        } catch (err: any) {
+          console.error(err);
+          failOperation(err.message || 'Purge failed due to database connectivity issues.');
+        }
       }
-      updateProgress(30, 'Assignments purged successfully.', aSnap.size);
-
-      // Step 2: Remove Notifications
-      updateProgress(35, 'Cleaning System Notifications...', aSnap.size);
-      const nQuery = query(collection(db, 'system_notifications'), where('moduleId', '==', `${grade.name}${grade.section}`));
-      const nSnap = await getDocs(nQuery);
-      for (const d of nSnap.docs) {
-          await deleteDoc(d.ref);
-      }
-      updateProgress(50, 'Notification logs cleared.', aSnap.size + nSnap.size);
-
-      // Step 3: Clear Results Data (Marks & Published)
-      updateProgress(55, 'Purging results and cache...', aSnap.size + nSnap.size);
-      
-      // Marks Deletion
-      for (const d of mSnap.docs) {
-        await deleteDoc(d.ref);
-      }
-
-      // Published Results & Verification Cache
-      const pQuery = query(collection(db, 'publishedResults'), where('grade', '==', grade.name), where('section', '==', grade.section));
-      const pSnap = await getDocs(pQuery);
-      for (const d of pSnap.docs) {
-        await deleteDoc(d.ref);
-      }
-
-      const vQuery = query(collection(db, 'verificationCache'), where('grade', '==', grade.name), where('section', '==', grade.section));
-      const vSnap = await getDocs(vQuery);
-      for (const d of vSnap.docs) {
-        await deleteDoc(d.ref);
-      }
-      
-      updateProgress(80, 'Results metadata purged.', aSnap.size + nSnap.size + mSnap.size + pSnap.size + vSnap.size);
-
-      // Step 4: Delete Primary Record
-      updateProgress(85, 'Deleting Primary Grade Record...', aSnap.size + nSnap.size + mSnap.size + pSnap.size + vSnap.size);
-      await deleteDoc(doc(db, 'grades', grade.id));
-
-      // Step 5: Update Configuration
-      if (isPublished) {
-          updateProgress(90, 'Updating System Configuration...', aSnap.size + nSnap.size + mSnap.size + pSnap.size + vSnap.size);
-          const newPublished = (config?.publishedGrades || []).filter(id => id !== grade.id);
-          await updateConfig({ publishedGrades: newPublished });
-      }
-
-      await trackOperation('GRADE_MGT', `Fully Purged Grade ${grade.name}${grade.section}`, { 
-        deletes: 1 + aSnap.size + nSnap.size + mSnap.size + pSnap.size + vSnap.size 
-      });
-      
-      completeOperation();
-      toast.success(`Grade ${grade.name}${grade.section} and its ecosystem deleted.`);
-    } catch (err: any) {
-      console.error(err);
-      failOperation(err.message || 'Purge failed due to database connectivity issues.');
-    }
+    });
   };
 
   const togglePublish = async (gradeId: string) => {
@@ -377,38 +385,46 @@ export const GradeManagement: React.FC = () => {
         <div className="flex gap-3">
           <button 
             onClick={async () => {
-              if (!config || isPublishing || !window.confirm('Publish results for ALL grades and sections? This will overwrite existing student portal data.')) return;
-              
-              setIsPublishing(true);
-              let overallProcessed = 0;
-              const totalGrades = grades.length;
-              
-              for (let i = 0; i < grades.length; i++) {
-                const grade = grades[i];
-                await publishGradeResults(grade.id, true, config, (p) => {
-                  // We merge real section progress with overall grade progress
-                  const sectionWeight = 1 / totalGrades;
-                  const sectionProgress = p.total > 0 ? (p.current / p.total) : 0;
-                  const overallPercent = Math.round(((i + sectionProgress) / totalGrades) * 100);
+              if (!config || isPublishing) return;
+
+              showModal({
+                title: 'Mass Publish Result Pipeline',
+                message: 'This operation will compute and publish analytical results for ALL grades and sections. This will consume significant Firebase resources and overwrite all existing portal data.',
+                type: 'confirm',
+                confirmText: 'Initiate Mass Publish',
+                onConfirm: async () => {
+                  setIsPublishing(true);
+                  let overallProcessed = 0;
+                  const totalGrades = grades.length;
                   
-                  setPublishProgress({
-                    ...p,
-                    status: `Overall Progress: ${overallPercent}% | Processing Grade ${grade.name}${grade.section}`,
-                    current: i, // We use grade index as current for overall
-                    total: totalGrades
-                  });
-                });
-                
-                // Update config iteratively or at the end? Iteratively is safer for feedback loop.
-                const currentPublished = config.publishedGrades || [];
-                if (!currentPublished.includes(grade.id)) {
-                  await updateConfig({ publishedGrades: [...currentPublished, grade.id] });
+                  for (let i = 0; i < grades.length; i++) {
+                    const grade = grades[i];
+                    await publishGradeResults(grade.id, true, config, (p) => {
+                      // We merge real section progress with overall grade progress
+                      const sectionWeight = 1 / totalGrades;
+                      const sectionProgress = p.total > 0 ? (p.current / p.total) : 0;
+                      const overallPercent = Math.round(((i + sectionProgress) / totalGrades) * 100);
+                      
+                      setPublishProgress({
+                        ...p,
+                        status: `Overall Progress: ${overallPercent}% | Processing Grade ${grade.name}${grade.section}`,
+                        current: i, // We use grade index as current for overall
+                        total: totalGrades
+                      });
+                    });
+                    
+                    // Update config iteratively or at the end? Iteratively is safer for feedback loop.
+                    const currentPublished = config.publishedGrades || [];
+                    if (!currentPublished.includes(grade.id)) {
+                      await updateConfig({ publishedGrades: [...currentPublished, grade.id] });
+                    }
+                  }
+                  
+                  setPublishProgress(prev => prev ? { ...prev, stage: 'completed', status: 'Successfully published all grades!' } : null);
+                  toast.success('Successfully published all grade results!');
+                  setIsPublishing(false);
                 }
-              }
-              
-              setPublishProgress(prev => prev ? { ...prev, stage: 'completed', status: 'Successfully published all grades!' } : null);
-              toast.success('Successfully published all grade results!');
-              setIsPublishing(false);
+              });
             }}
             disabled={isPublishing}
             className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-100 hover:scale-105 transition-transform disabled:opacity-50"

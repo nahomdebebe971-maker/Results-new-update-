@@ -5,8 +5,10 @@ import { db } from '../lib/firebase';
 import { Subject } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'react-hot-toast';
+import { useModal } from '../context/ModalContext';
 
 export const SubjectManagement: React.FC = () => {
+  const { showModal } = useModal();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -39,14 +41,20 @@ export const SubjectManagement: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this course? This will purge all associated student scores.')) {
-      try {
-        await deleteDoc(doc(db, 'subjects', id));
-        toast.success('Course expelled from curriculum.');
-      } catch {
-        toast.error('Failed to delete subject.');
+    showModal({
+      title: 'Expel Course from Curriculum',
+      message: 'Are you sure you want to delete this course? This will purge all associated student scores and historical mark entries from the database. This action is irreversible.',
+      type: 'warning',
+      confirmText: 'Confirm Deletion',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'subjects', id));
+          toast.success('Course expelled from curriculum.');
+        } catch {
+          toast.error('Failed to delete subject.');
+        }
       }
-    }
+    });
   };
 
   if (loading) {

@@ -28,10 +28,12 @@ interface ImportPreview {
 
 import { logAction } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
+import { useModal } from '../context/ModalContext';
 import { trackOperation } from '../lib/metrics';
 
 export const StudentManagement: React.FC = () => {
   const { user } = useAuth();
+  const { showModal } = useModal();
   const { config } = useSchoolConfig();
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -119,24 +121,30 @@ export const StudentManagement: React.FC = () => {
 
 
   const handleDelete = async (studentId: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete student record for ${name}?`)) {
-      try {
-        await deleteDoc(doc(db, 'students', studentId));
-        await trackOperation('STUDENT_MGT', `Deleted Student: ${name}`, { deletes: 1, writes: 1 });
-        if (user) {
-          await logAction(
-            user.uid,
-            user.email || '',
-            'STUDENT_EDIT',
-            `Deleted student record: ${name} (${studentId})`,
-            studentId
-          );
+    showModal({
+      title: 'Delete Student Profile',
+      message: `You are about to permanently delete the profile for ${name}. This action will void their student ID, clear their attendance history, and purge all scholastic records.`,
+      type: 'warning',
+      confirmText: 'Permanently Delete',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'students', studentId));
+          await trackOperation('STUDENT_MGT', `Deleted Student: ${name}`, { deletes: 1, writes: 1 });
+          if (user) {
+            await logAction(
+              user.uid,
+              user.email || '',
+              'STUDENT_EDIT',
+              `Deleted student record: ${name} (${studentId})`,
+              studentId
+            );
+          }
+          toast.success('Student record purged from primary ledger.');
+        } catch (err) {
+          toast.error('Failed to eliminate student record.');
         }
-        toast.success('Student deleted.');
-      } catch (err) {
-        toast.error('Failed to delete student.');
       }
-    }
+    });
   };
 
   const filteredStudents = students.filter(s => 

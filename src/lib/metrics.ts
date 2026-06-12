@@ -17,15 +17,31 @@ export interface SystemMetrics {
   teachersCount: number;
   resultsCount: number;
   sectionsCount: number;
+  // Generated specifically today
+  genStudents?: number;
+  genTeachers?: number;
+  genMarks?: number;
+  genRecords?: number;
   lastUpdated: string;
   quotaExhausted?: boolean;
   exhaustedAt?: string | null;
   lastError?: string | null;
+  resetTimestamp?: string;
   moduleActivity?: Record<string, number>;
 }
 
-const getDailyDocId = () => {
-  return new Date().toISOString().split('T')[0];
+export const getDailyDocId = () => {
+  // Authoritative Reset Point: 10:00 AM UTC
+  const now = new Date();
+  const d = new Date(now);
+  
+  // If before 10 AM UTC, we are still in yesterday's quota cycle
+  if (now.getUTCHours() < 10) {
+    d.setUTCDate(d.getUTCDate() - 1);
+  }
+  
+  // Return YYYY-MM-DD which represents the START date of the 24h quota cycle
+  return d.toISOString().split('T')[0];
 };
 
 export const trackError = async (error: any) => {
@@ -45,11 +61,8 @@ export const trackError = async (error: any) => {
     };
 
     try {
-      await updateDoc(metricsRef, updateData);
-    } catch (e) {
-      // If daily doc doesn't exist yet, we don't necessarily want to create it just for an error
-      // but we'll try to keep global status updated
-    }
+      await setDoc(metricsRef, updateData, { merge: true });
+    } catch (e) {}
     
     await setDoc(globalRef, updateData, { merge: true });
   } catch (err) {
@@ -83,8 +96,7 @@ export const trackMetrics = async (updates: Partial<Record<keyof SystemMetrics, 
   try {
     const docId = getDailyDocId();
     const metricsRef = doc(db, 'system_metrics', docId);
-    const docSnap = await getDoc(metricsRef);
-
+    
     const firestoreUpdates: any = {
       lastUpdated: new Date().toISOString(),
       date: docId
@@ -97,25 +109,11 @@ export const trackMetrics = async (updates: Partial<Record<keyof SystemMetrics, 
       }
     }
 
-    if (!docSnap.exists()) {
-      // Initialize if doesn't exist
-      const initial: any = {
-        totalWrites: 0,
-        totalReads: 0,
-        totalDeletes: 0,
-        studentsCount: 0,
-        teachersCount: 0,
-        resultsCount: 0,
-        sectionsCount: 0,
-        moduleActivity: {},
-        date: docId,
-        ...updates,
-        lastUpdated: new Date().toISOString()
-      };
-      await setDoc(metricsRef, initial);
-    } else {
-      await updateDoc(metricsRef, firestoreUpdates);
-    }
+    await setDoc(metricsRef, firestoreUpdates, { merge: true });
+
+    // Also update global status for real-time synchronization across panels
+    const globalRef = doc(db, 'system_metrics', 'global_status');
+    await setDoc(globalRef, firestoreUpdates, { merge: true });
   } catch (err) {
     console.error('Failed to track metrics:', err);
   }
@@ -129,7 +127,8 @@ export type OperationModule =
 export const trackOperation = async (
   module: OperationModule, 
   action: string, 
-  stats: { writes?: number; reads?: number; deletes?: number }
+  stats: { writes?: number; reads?: number; deletes?: number },
+  metadata?: { userRole?: string; collection?: string }
 ) => {
   try {
     const docId = getDailyDocId();
@@ -147,11 +146,37 @@ export const trackOperation = async (
 
     await setDoc(metricsRef, updates, { merge: true });
 
+    // 1.5 Update Global Totals (Only if not resetting)
+    const globalRef = doc(db, 'system_metrics', 'global_status');
+    const globalSnap = await getDoc(globalRef);
+    const globalData = globalSnap.data();
+    
+    // Check if global status is stale (from previous cycle)
+    const lastGlobalUpdate = globalData?.lastUpdated ? new Date(globalData.lastUpdated) : null;
+    const now = new Date();
+    const cycleStart = new Date(now);
+    cycleStart.setUTCHours(10, 0, 0, 0);
+    if (now.getUTCHours() < 10) cycleStart.setUTCDate(cycleStart.getUTCDate() - 1);
+
+    if (!globalData || (lastGlobalUpdate && lastGlobalUpdate < cycleStart)) {
+      // Hard Reset Global Status for new cycle
+      await setDoc(globalRef, {
+        totalReads: stats.reads || 0,
+        totalWrites: stats.writes || 0,
+        totalDeletes: stats.deletes || 0,
+        lastUpdated: new Date().toISOString(),
+        resetTimestamp: cycleStart.toISOString()
+      });
+    } else {
+      await setDoc(globalRef, updates, { merge: true });
+    }
+
     // 2. Log Recent Operation
     await addDoc(collection(db, 'system_operations'), {
       module,
       action,
       ...stats,
+      ...metadata,
       timestamp: new Date().toISOString(),
       date: docId
     });

@@ -119,16 +119,23 @@ const AppContent: React.FC = () => {
 
 import { ProgressProvider } from './context/ProgressContext';
 import { GlobalProgressModal } from './components/GlobalProgressModal';
+import { ModalProvider } from './context/ModalContext';
+import { GlobalModal } from './components/UI/GlobalModal';
+import { Toaster } from 'react-hot-toast';
 
 export default function App() {
   return (
     <ProgressProvider>
-      <NavigationProvider>
-        <AuthProvider>
-          <AppContent />
-          <GlobalProgressModal />
-        </AuthProvider>
-      </NavigationProvider>
+      <ModalProvider>
+        <NavigationProvider>
+          <AuthProvider>
+            <AppContent />
+            <GlobalProgressModal />
+            <GlobalModal />
+            <Toaster position="top-right" />
+          </AuthProvider>
+        </NavigationProvider>
+      </ModalProvider>
     </ProgressProvider>
   );
 }

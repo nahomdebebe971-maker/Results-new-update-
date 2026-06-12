@@ -9,11 +9,13 @@ import { toast } from 'react-hot-toast';
 
 import { logAction } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
+import { useModal } from '../context/ModalContext';
 import { generateTeacherDoc } from '../lib/teacherPdf';
 import { trackOperation } from '../lib/metrics';
 
 export const TeacherManagement: React.FC = () => {
   const { user } = useAuth();
+  const { showModal } = useModal();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -61,20 +63,27 @@ export const TeacherManagement: React.FC = () => {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (window.confirm(`Delete teacher record for ${name}?`)) {
-      await deleteDoc(doc(db, 'teachers', id));
-      await trackOperation('TEACHER_MGT', `Removed Teacher: ${name}`, { deletes: 1, writes: 1 });
-      
-      if (user) {
-        await logAction(
-          user.uid,
-          user.email || '',
-          'TEACHER_EDIT',
-          `Deleted teacher record: ${name}`,
-          id
-        );
+    showModal({
+      title: 'Delete Teacher Record',
+      message: `Are you sure you want to delete the teacher record for ${name}? This action cannot be undone.`,
+      type: 'warning',
+      confirmText: 'Delete Record',
+      onConfirm: async () => {
+        await deleteDoc(doc(db, 'teachers', id));
+        await trackOperation('TEACHER_MGT', `Removed Teacher: ${name}`, { deletes: 1, writes: 1 });
+        
+        if (user) {
+          await logAction(
+            user.uid,
+            user.email || '',
+            'TEACHER_EDIT',
+            `Deleted teacher record: ${name}`,
+            id
+          );
+        }
+        toast.success(`Teacher record for ${name} deleted`);
       }
-    }
+    });
   };
 
   const exportToExcel = () => {

@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { getAnalytics, calculateAndSaveAnalytics } from '../services/analyticsService';
 import { SchoolAnalytics, Student, Mark, Grade, Subject, SchoolConfig } from '../types';
-import { collection, getDocs, query, where, doc, setDoc, getDoc } from 'firebase/firestore';
+import { useModal } from '../context/ModalContext';
+import { collection, getDocs, query, where, doc, setDoc, getDoc, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -20,6 +21,7 @@ import {
 } from 'recharts';
 
 export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ config }) => {
+  const { showModal } = useModal();
   const [analytics, setAnalytics] = useState<SchoolAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -261,37 +263,76 @@ export const AnalyticsDashboard: React.FC<{ config: SchoolConfig | null }> = ({ 
 
   // Recalculates analytical aggregates and saves to Cloud Storage/Firestore
   const handleRecalculate = async (silent = false) => {
-    if (!silent) setSyncing(true);
-    try {
-      const rangesToSave = customRanges.map(cr => ({
-        label: cr.label,
-        min: cr.min,
-        max: cr.max
-      }));
+    const startAction = async () => {
+      if (!silent) setSyncing(true);
+      try {
+        const rangesToSave = customRanges.map(cr => ({
+          label: cr.label,
+          min: cr.min,
+          max: cr.max
+        }));
 
-      await calculateAndSaveAnalytics(rangesToSave);
-      const updated = await getAnalytics();
-      if (updated) {
-        setAnalytics(updated);
-        const loadedRanges = updated.data?.scoreRangesUsed || [];
-        if (loadedRanges.length > 0) {
-          const mappedSaved = loadedRanges.map((r: any, idx: number) => ({
-            id: r.id || idx.toString(),
-            label: r.label,
-            min: parseFloat(r.min) || 0,
-            max: parseFloat(r.max) || 0
-          }));
-          setCustomRanges(mappedSaved);
-          setCachedRanges(mappedSaved);
+        await calculateAndSaveAnalytics(rangesToSave);
+        const updated = await getAnalytics();
+        if (updated) {
+          setAnalytics(updated);
+          const loadedRanges = updated.data?.scoreRangesUsed || [];
+          if (loadedRanges.length > 0) {
+            const mappedSaved = loadedRanges.map((r: any, idx: number) => ({
+              id: r.id || idx.toString(),
+              label: r.label,
+              min: parseFloat(r.min) || 0,
+              max: parseFloat(r.max) || 0
+            }));
+            setCustomRanges(mappedSaved);
+            setCachedRanges(mappedSaved);
+          }
+          if (!silent) toast.success('Analytics pipeline successfully generated and cached!');
         }
-        if (!silent) toast.success('Analytics pipeline successfully generated and cached!');
+      } catch (err) {
+        console.error(err);
+        if (!silent) {
+           showModal({
+              title: 'Calculation Error',
+              message: 'The analytical pipeline failed to execute. This might be due to a network interruption or Firebase quota limits.',
+              type: 'error',
+              confirmText: 'Close'
+           });
+        }
+      } finally {
+        if (!silent) setSyncing(false);
       }
-    } catch (err) {
-      console.error(err);
-      if (!silent) toast.error('Recalculation routine crashed');
-    } finally {
-      if (!silent) setSyncing(false);
+    };
+
+    if (silent) {
+      startAction();
+      return;
     }
+
+    // Estimate usage
+    // Approx reads: students + marks + grades + subjects + subjects + teachers + config
+    // Approx writes: 11 docs
+    const estReads = (schoolWideStats.totalStudents || 100) + 
+                     (schoolWideStats.totalStudents * 10 || 500) + // assuming 10 marks per student average
+                     50; // buffer for meta docs
+
+    showModal({
+      title: 'Confirm Analysis Calculation',
+      message: 'You are about to initiate a full-scale analytical recalculation of all school data. This process inspects every student record, mark, and grade setting to build high-fidelity metrics.',
+      type: 'confirm',
+      confirmText: 'Continue Calculation',
+      cancelText: 'Cancel',
+      showUsage: true,
+      estimatedUsage: {
+        reads: estReads,
+        writes: 15
+      },
+      currentUsage: {
+        reads: 0, // We don't have real-time current session usage here without more plumbing, but we'll show zeroes or just hide it
+        writes: 0
+      },
+      onConfirm: startAction
+    });
   };
 
   // Safe handler to update customizable ranges locally in state
